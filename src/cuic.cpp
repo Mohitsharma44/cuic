@@ -1,3 +1,22 @@
+/*
+   ===============
+       C U I C
+   ===============
+CUSP Urban Imaging Camera
+
+This code contains functions for 
+- Enumerating the Interfaces on host system
+- Enumerating the devices on every Interface
+- Connect to the camera
+- Start Capturing the Images
+
+
+Author = Mohit Sharma
+Date = July 26 2016
+Copyright (c) CUSP
+
+ */
+
 #define PV_GUI_NOT_AVAILABLE
 
 #include <sstream>

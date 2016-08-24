@@ -20,6 +20,7 @@ Copyright (c) CUSP
 #define PV_GUI_NOT_AVAILABLE
 
 #include <sstream>
+#include <unistd.h>
 
 #include <PvSampleUtils.h>
 #include <PvSystem.h>
@@ -35,10 +36,17 @@ Copyright (c) CUSP
 #include <PvBuffer.h>
 
 #include <PvBufferWriter.h>
+#include <PvConfigurationWriter.h>
 
+// For casting int to string
 #define SSTR( x ) static_cast< std::ostringstream & >(( std::ostringstream() << std::dec << x ) ).str()
 
+// Globals
 #define BUFFER_COUNT ( 16 )
+#define DEVICE_CONFIGURATION_TAG ( "DeviceConfiguration" )
+#define STREAM_CONFIGURATION_TAG ( "StreamConfiguration" )
+#define STRING_INFORMATION_TAG ( "Copyright" )
+#define CUSP_COPYRIGHT ( "CUSP 2016" )
 
 PV_INIT_SIGNAL_HANDLER();
 
@@ -51,7 +59,6 @@ void ConfigureStream( PvDevice *Device, PvStream *Stream);
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream);
 void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *pipeline);
 // -- 
-
 
 int main()
 {
@@ -99,6 +106,7 @@ int main()
 
   return 0;
 }
+
 
 int findDevices()
 {
@@ -227,12 +235,12 @@ const PvDeviceInfo *SelectDevice()
 }
 
 
-
 PvDevice *ConnectToDevice( const PvDeviceInfo *DeviceInfo)
 {
   PvSystem System;
   PvDevice *Device;
   PvResult Result;
+  
   
   Result = System.Find();
   cout << "Connecting to Device: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
@@ -254,7 +262,6 @@ PvDevice *ConnectToDevice( const PvDeviceInfo *DeviceInfo)
 
     }
 }
-
 
 
 PvStream *OpenStream( const PvDeviceInfo *DeviceInfo )
@@ -285,10 +292,9 @@ void ConfigureStream( PvDevice *Device, PvStream *Stream)
       GEVDevice->NegotiatePacketSize();
       // Configure device streaming destination
       GEVDevice->SetStreamDestination( GEVStream->GetLocalIPAddress(), GEVStream->GetLocalPort());
+      
     }
-
 }
-
 
 
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
@@ -310,6 +316,9 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 
 void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 {
+
+  // Parameters for storing metadata
+  PvConfigurationWriter Writer;
 
   // Get Device Parameters to control streaming
   PvGenParameterArray *DeviceParams = Device->GetParameters();
@@ -372,6 +381,21 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      
 	      if ( Type == PvPayloadTypeImage)
 		{
+		  uint64_t timestamp = Buffer->GetReceptionTime();
+		  cout << "Timestamp: " << timestamp << endl;
+		  std::string meta_fname = SSTR( timestamp ) + ".meta";
+
+		  // Store Metadata first
+		  //   Store Device related info
+		  Writer.Store( Device, DEVICE_CONFIGURATION_TAG );
+		  //   Store Stream related info
+		  Writer.Store( Stream, STREAM_CONFIGURATION_TAG );
+		  //   CUSP String
+		  Writer.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
+		  // Write Metadata to the file
+		  Writer.Save( meta_fname.c_str() );
+		  
+		  
 		  // Get Image specific Buffer interface
 		  PvImage *Image = Buffer->GetImage();
 		  // Read Width and Height
@@ -401,12 +425,19 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 		  //	  *( DataPtr++ ) = ( HCount++ ) % 256;
 		  //	}
 		  //}
-		  
+		  		  
 		  PvBufferWriter BuffWriter;
-		  std::string fname = SSTR(co) + ".tiff";
-		  BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatTIFF );
-
 		  
+		  // For TIFF, use PvBufferFormatTIFF
+		  // For BMP, use PvBufferFormatBMP
+		  // changing from co to timestamp
+		  std::string fname = SSTR( timestamp ) + ".raw";
+		  BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
+		  
+		  // Sleep before restarting
+		  sleep(5);		  
+
+
                   // Enable Streaming                                                               
                   cout << "Enable Streaming " << endl;
                   Device->StreamEnable();
@@ -436,6 +467,7 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	  //Retrieve Buffer failure
 	  cout << Doodle[ DoodleIndex ] << " " << Result.GetCodeString().GetAscii() << "\r";
 	}
+      
       ++DoodleIndex %=6;
       co++;
     }

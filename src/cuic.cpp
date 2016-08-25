@@ -317,9 +317,6 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 {
 
-  // Parameters for storing metadata
-  PvConfigurationWriter Writer;
-
   // Get Device Parameters to control streaming
   PvGenParameterArray *DeviceParams = Device->GetParameters();
 
@@ -348,6 +345,8 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
   int DoodleIndex = 0;
   double FrameRateVal = 0.0;
   double BandwidthVal = 0.0;
+  std::string meta_fname;
+  std::string fname;
 
   cout << endl << " < Press any key to Stop Streaming> " << endl;
   int co = 0;
@@ -381,19 +380,22 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      
 	      if ( Type == PvPayloadTypeImage)
 		{
+		  // Parameters for storing metadata
+		  PvConfigurationWriter ConfigWriter;
+
 		  uint64_t timestamp = Buffer->GetReceptionTime();
-		  cout << "Timestamp: " << timestamp << endl;
-		  std::string meta_fname = SSTR( timestamp ) + ".meta";
+		  //cout << "Timestamp: " << timestamp << endl;
+		  meta_fname = SSTR( timestamp ) + ".hdr";
 
 		  // Store Metadata first
 		  //   Store Device related info
-		  Writer.Store( Device, DEVICE_CONFIGURATION_TAG );
+		  ConfigWriter.Store( Device, DEVICE_CONFIGURATION_TAG );
 		  //   Store Stream related info
-		  Writer.Store( Stream, STREAM_CONFIGURATION_TAG );
+		  ConfigWriter.Store( Stream, STREAM_CONFIGURATION_TAG );
 		  //   CUSP String
-		  Writer.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
+		  ConfigWriter.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
 		  // Write Metadata to the file
-		  Writer.Save( meta_fname.c_str() );
+		  ConfigWriter.Save( meta_fname.c_str() );
 		  
 		  
 		  // Get Image specific Buffer interface
@@ -431,13 +433,14 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 		  // For TIFF, use PvBufferFormatTIFF
 		  // For BMP, use PvBufferFormatBMP
 		  // changing from co to timestamp
-		  std::string fname = SSTR( timestamp ) + ".raw";
-		  BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
+		  fname = SSTR( timestamp ) + ".tiff";
+		  BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatTIFF );
 		  
 		  // Sleep before restarting
-		  sleep(5);		  
-
-
+		  sleep(5);	
+		  //delete &BuffWriter;
+		  //delete &Image;
+		  //delete &ConfigWriter;
                   // Enable Streaming                                                               
                   cout << "Enable Streaming " << endl;
                   Device->StreamEnable();

@@ -385,17 +385,17 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 
 		  uint64_t timestamp = Buffer->GetReceptionTime();
 		  //cout << "Timestamp: " << timestamp << endl;
-		  meta_fname = SSTR( timestamp ) + ".hdr";
+		  //meta_fname = SSTR( timestamp ) + ".hdr";
 
 		  // Store Metadata first
 		  //   Store Device related info
-		  ConfigWriter.Store( Device, DEVICE_CONFIGURATION_TAG );
+		  //ConfigWriter.Store( Device, DEVICE_CONFIGURATION_TAG );
 		  //   Store Stream related info
-		  ConfigWriter.Store( Stream, STREAM_CONFIGURATION_TAG );
+		  //ConfigWriter.Store( Stream, STREAM_CONFIGURATION_TAG );
 		  //   CUSP String
-		  ConfigWriter.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
+		  //ConfigWriter.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
 		  // Write Metadata to the file
-		  ConfigWriter.Save( meta_fname.c_str() );
+		  //ConfigWriter.Save( meta_fname.c_str() );
 		  
 		  
 		  // Get Image specific Buffer interface
@@ -404,18 +404,18 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 		  Width = Image->GetWidth();
 		  Height = Image->GetHeight();
 		  cout << " W: " << dec << Width << "H: " << Height;
-		  cout << "Saving Image ... ";
+		  //cout << "Saving Image ... ";
 
 		  // Tell device to Stop sending Images
-		  cout << "Sending Acquisition Stop Command " << endl;
+		  //cout << "Sending Acquisition Stop Command " << endl;
 		  Stop->Execute();
 		  // Disable Streaming                                                               
-		  cout << "Disabling Streaming " << endl;
-		  Device->StreamDisable();
+		  //cout << "Disabling Streaming " << endl;
+		  //Device->StreamDisable();
 
 
 		  // Allocate memory of the size of the image
-		  Image->Alloc( Width, Height, PvPixelMono8 );
+		  //Image->Alloc( Width, Height, PvPixelMono8 );
 
 		  // Fill the buffer
 		  //uint8_t *DataPtr = Image->GetDataPointer();
@@ -430,22 +430,23 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 		  		  
 		  PvBufferWriter BuffWriter;
 		  
+		  // For RAW, use PvBufferFormatRAW
 		  // For TIFF, use PvBufferFormatTIFF
 		  // For BMP, use PvBufferFormatBMP
 		  // changing from co to timestamp
-		  fname = SSTR( timestamp ) + ".tiff";
+		  fname = "/mnt/ramdisk/" + SSTR( timestamp ) + ".tiff";
 		  BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatTIFF );
 		  
 		  // Sleep before restarting
-		  sleep(5);	
+		  sleep(0.2);	
 		  //delete &BuffWriter;
 		  //delete &Image;
 		  //delete &ConfigWriter;
                   // Enable Streaming                                                               
-                  cout << "Enable Streaming " << endl;
-                  Device->StreamEnable();
+                  //cout << "Enable Streaming " << endl;
+                  //Device->StreamEnable();
 		  // Tell device to Start sending Images
-                  cout << "Sending Acquisition Start Command " << endl;
+                  //cout << "Sending Acquisition Start Command " << endl;
                   Start->Execute();
 		  
 

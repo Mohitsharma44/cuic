@@ -19,12 +19,13 @@ PV_LIBRARY_PATH      =$(PUREGEV_ROOT)/lib
 
 CFLAGS              += -I$(PUREGEV_ROOT)/include -I.
 CPPFLAGS            += -I$(PUREGEV_ROOT)/include -I. 
+CPPFLAGS	    += -std=c++11 -pthread -I../include
 ifdef _DEBUG
     CFLAGS    += -g -D_DEBUG
     CPPFLAGS  += -g -D_DEBUG
 else
     CFLAGS    += -O3
-    CPPFLAGS  += -O3
+    CPPFLAGS  += -O3 -march=native
 endif
 CFLAGS    += -D_UNIX_ -D_LINUX_
 CPPFLAGS  += -D_UNIX_ -D_LINUX_

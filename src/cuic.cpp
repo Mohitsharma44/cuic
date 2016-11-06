@@ -15,7 +15,7 @@ Author = Mohit Sharma
 Date = July 26 2016
 Copyright (c) CUSP
 
- */
+*/
 
 #define PV_GUI_NOT_AVAILABLE
 
@@ -38,6 +38,10 @@ Copyright (c) CUSP
 #include <PvBufferWriter.h>
 #include <PvConfigurationWriter.h>
 
+#include "spdlog/spdlog.h"
+#include <iostream>
+#include <memory>
+
 // For casting int to string
 #define SSTR( x ) static_cast< std::ostringstream & >(( std::ostringstream() << std::dec << x ) ).str()
 
@@ -47,10 +51,12 @@ Copyright (c) CUSP
 #define STREAM_CONFIGURATION_TAG ( "StreamConfiguration" )
 #define STRING_INFORMATION_TAG ( "Copyright" )
 #define CUSP_COPYRIGHT ( "CUSP 2016" )
+#define IFNAME ("eth0")
 
 PV_INIT_SIGNAL_HANDLER();
 
 // -- Function Prototypes
+std::shared_ptr<spdlog::logger> initialize();
 int findDevices();
 const PvDeviceInfo *SelectDevice();
 PvDevice *ConnectToDevice(const PvDeviceInfo *DeviceInfo);
@@ -60,15 +66,33 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream);
 void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *pipeline);
 // -- 
 
-int main()
+std::shared_ptr<spdlog::logger> initialize()
 {
+  // -- Setting up stdout and file logger
+  std::vector<spdlog::sink_ptr> sinks;
+  auto stdout_sink = spdlog::sinks::stdout_sink_mt::instance();
+  auto color_sink = std::make_shared<spdlog::sinks::ansicolor_sink>(stdout_sink);  
+  sinks.push_back(color_sink);
+  sinks.push_back(std::make_shared<spdlog::sinks::daily_file_sink_st>("logs/cuicLogger", "log", 23, 59));
+  auto combined_logger = std::make_shared<spdlog::logger>("cuicLogger", sinks.begin(), sinks.end());
+  //register it to access globally
+  spdlog::register_logger(combined_logger);
+  // Force flush to file when encountered error
+  combined_logger->flush_on(spdlog::level::err);
+  return combined_logger;
+}
+
+std::shared_ptr<spdlog::logger> logger;
+
+int main(int, char*[])
+{
+  logger = initialize();
   const PvDeviceInfo *DeviceInfo = NULL;
   PvDevice *Device = NULL;
   PvStream *Stream = NULL;
   PvPipeline *Pipeline = NULL;
 
   PV_SAMPLE_INIT();
-  cout << "---- ----- ----" << endl;
 
   findDevices();
   DeviceInfo = SelectDevice();
@@ -88,19 +112,16 @@ int main()
 		  delete Pipeline;
 		}
 	      // Close Stream
-	      cout << "Closing Stream " << endl;
+	      logger->info("Closing Stream");
 	      Stream->Close();
 	      PvStream::Free( Stream );
 	    }
 	  // Disconnect the Device
-	  cout << "Disconnecting the Device " << endl;
+	  logger->info("Disconnecting the Device ");
 	  Device->Disconnect();
 	  PvDevice::Free( Device );	  
 	}
     }
-  
-
-  cout << "---- ---- ----" << endl;
 
   PV_SAMPLE_TERMINATE();
 
@@ -110,6 +131,8 @@ int main()
 
 int findDevices()
 {
+  int gigEInterfaceId;
+  logger->info("Finding Devices");
   PvResult Result;
   //const PvDeviceInfo* lLastDeviceInfo = NULL;
 
@@ -118,68 +141,76 @@ int findDevices()
   Result = System.Find();
   if ( !Result.IsOK() )
     {
-      cout << "PvSystem err in findDevices: "<< Result.GetCodeString().GetAscii();
+      logger->error(std::string("PvSystem err in findDevices: ") + Result.GetCodeString().GetAscii() );
       return -1;
     }
 
   // Go through all interfaces
   uint32_t InterfaceCount = System.GetInterfaceCount();
-  cout << "Interfaces on the system: "<< InterfaceCount << endl << endl;
-
+  //cout << "Interfaces on the system: "<< InterfaceCount << endl << endl;
+  
   for (uint32_t x = 0; x < InterfaceCount; x++)
     {
       //cout << "Scanning Interface "<< x << endl;
       
       // Get Pointer to the interfaace
       const PvInterface* Interface = System.GetInterface( x );
-      cout << "Interface Id: " << x << endl;
+      //cout << "Interface Id: " << x << endl;
       
       // For Network Adapter
       const PvNetworkAdapter* NIC = dynamic_cast<const PvNetworkAdapter*>( Interface );
-      if ( NIC != NULL)
+      // For GigE devices
+      /*
+      if ( NIC != NULL && std::string(NIC->GetName().GetAscii()) == IFNAME)
 	{
 	  cout << "Interface Name: " << NIC->GetName().GetAscii() << endl;
 	  cout << " - Physical Address: " << NIC->GetMACAddress().GetAscii() << endl;
 	  cout << " - IP Address: " << NIC->GetIPAddress().GetAscii() << endl << endl;
 	}
-
+      */
       // For USB Controller
+      /*
       const PvUSBHostController* USB = dynamic_cast<const PvUSBHostController*>( Interface );
       if ( USB != NULL)
 	{
 	  cout << "Interface Name: " << USB->GetName().GetAscii() << endl << endl;
 	}
-      
+      */
       
 
-      // Enumerate all deices on every Interface
+      // Enumerate all devices on every Interface
       uint32_t DeviceCount = Interface->GetDeviceCount();
       for ( uint32_t y = 0; y < DeviceCount; y++ )
 	{
 	  const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( y );
+	  /*
 	  cout << " - Device: " << y << endl;
 	  cout << " | .. Id: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
 	  cout << " | .. Serial Number: " << DeviceInfo->GetSerialNumber().GetAscii() << endl;
 	  cout << " | .. Vendor Name: " << DeviceInfo->GetVendorName().GetAscii() << endl;
 	  cout << " | .. Model Name: " << DeviceInfo->GetModelName().GetAscii() << endl;
-
+	  */
 	  const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( DeviceInfo );
 	  const PvDeviceInfoU3V* DeviceInfoU3V = dynamic_cast<const PvDeviceInfoU3V*>( DeviceInfo );
 	  const PvDeviceInfoUSB* DeviceInfoUSB = dynamic_cast<const PvDeviceInfoUSB*>( DeviceInfo );
 
 	  if ( DeviceInfoGEV != NULL)
 	    {
+	      logger->info("Device "+SSTR(y)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
 	      // GigE Vision devices
+	      /*
 	      cout << " | .. MAC address: " << DeviceInfoGEV->GetMACAddress().GetAscii() << endl;
 	      cout << " | .. IP Address: " << DeviceInfoGEV->GetIPAddress().GetAscii() << endl;
 	      cout << " | .. Manufacturer Info: " << DeviceInfoGEV->GetManufacturerInfo().GetAscii() << endl;
+	      */
 	      if (DeviceInfoGEV->IsConfigurationValid() != true)
 		{
-		  cout << "Does not have a valid IP configuration. Provide the IP in the same subnet as the interface" << endl;
+		  logger->error("Does not have a valid IP configuration. Provide the IP in the same subnet as the interface");
 		}
-	      cout << endl;
+	      //cout << endl;
 	    }
-
+	  
+	  /*
 	  else if (DeviceInfoU3V != NULL)
 	    {
 	      // USB3 Device
@@ -200,9 +231,10 @@ int findDevices()
 	      // USB Device
 	      cout << "No Support for USB 2.0 devices" << endl << endl;
 	    }
+	  */
 	  else 
 	    {
-	      cout << "No Device Found."<< endl << endl;
+	      logger->error("No Device Found");
 	    }
 	}
     }
@@ -216,12 +248,13 @@ const PvDeviceInfo *SelectDevice()
   PvSystem System;
   PvResult Result;
  
-  int device_id = 0, interface_id = 0;
+  int device_id = 1, interface_id = 2;
 
   Result = System.Find();
   if ( !Result.IsOK() )
     {
-      cout << "PvSystem err in connectToDevice: " << Result.GetCodeString().GetAscii();
+      logger->error(std::string("PvSystem err in connectToDevice: ") + Result.GetCodeString().GetAscii() );
+      //cout << "PvSystem err in connectToDevice: " << Result.GetCodeString().GetAscii();
     }
   //cout << "Enter the Interface id to connect to " << endl;
   //cin >> interface_id;
@@ -243,17 +276,20 @@ PvDevice *ConnectToDevice( const PvDeviceInfo *DeviceInfo)
   
   
   Result = System.Find();
-  cout << "Connecting to Device: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
+  logger->info(std::string("Connecting to Device: ") + DeviceInfo->GetDisplayID().GetAscii());
+  //cout << "Connecting to Device: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
   
   // Creates and connects to the device controller
   Device = PvDevice::CreateAndConnect( DeviceInfo, &Result);
   if ( Device == NULL )
     {
-      cout << "Unable to connect to: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
+      //cout << "Unable to connect to: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
+      logger->info(std::string("Unable to connect to: ") + DeviceInfo->GetDisplayID().GetAscii() );
     }
   else
     {
-      cout << "Connected to: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
+      //cout << "Connected to: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
+      //logger->info(std::string("Connected to: ") +DeviceInfo->GetDisplayID().GetAscii() );
       // REMOVE IT!!!!
       //cout << "Disconnecting from: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
       //PvDevice::Free( Device );
@@ -272,11 +308,13 @@ PvStream *OpenStream( const PvDeviceInfo *DeviceInfo )
 
   Result = System.Find();
   // Open Stream to GigE or USB3
-  cout << "Opening Stream to device " << endl;
+  logger->info("Opening Stream to device ");
+  //cout << "Opening Stream to device " << endl;
   Stream = PvStream::CreateAndOpen( DeviceInfo->GetConnectionID(), &Result );
   if ( Stream == NULL)
     {
-      cout << "Cannot Open Stream " << Result.GetCodeString().GetAscii() << endl;
+      logger->error(std::string("Cannot Open Stream ") + Result.GetCodeString().GetAscii() );
+      //cout << "Cannot Open Stream " << Result.GetCodeString().GetAscii() << endl;
     }
   return Stream;
 }
@@ -325,7 +363,7 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
   PvGenCommand *Stop = dynamic_cast<PvGenCommand *>( DeviceParams->Get( "AcquisitionStop" ));
 
   // Initialize Pipeline
-  cout << "Starting Pipeline" << endl;
+  logger->info("Starting Pipeling");
   Pipeline->Start();
 
   // Get Stream Parameters
@@ -336,7 +374,8 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
   PvGenFloat *Bandwidth = dynamic_cast<PvGenFloat *>( StreamParams->Get( "Bandwidth" ));
 
   // Enable Streaming and Start Acquisition
-  cout << "Enabling Streaming and Starting Acquisition" << endl;
+  logger->info("Enabling Streaming and Starting Acquisition");
+  //cout << "Enabling Streaming and Starting Acquisition" << endl;
   Device->StreamEnable();
   Start->Execute();
   
@@ -348,7 +387,8 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
   std::string meta_fname;
   std::string fname;
 
-  cout << endl << " < Press any key to Stop Streaming> " << endl;
+  logger->info("< Press any key to Stop Streaming>");
+  //cout << endl << " < Press any key to Stop Streaming> " << endl;
   int co = 0;
   while ( !PvKbHit() )
     {
@@ -430,12 +470,12 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 		  		  
 		  PvBufferWriter BuffWriter;
 		  
-		  // For RAW, use PvBufferFormatRAW
+		  // For RAW, use PvBufferFormatRaw
 		  // For TIFF, use PvBufferFormatTIFF
 		  // For BMP, use PvBufferFormatBMP
 		  // changing from co to timestamp
-		  fname = "/mnt/ramdisk/" + SSTR( timestamp ) + ".tiff";
-		  BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatTIFF );
+		  //fname = "/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/" + SSTR( timestamp ) + ".raw";
+		  //BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
 		  
 		  // Sleep before restarting
 		  sleep(0.2);	
@@ -453,7 +493,8 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 		}
 		  else
 		    {
-		      cout << "Buffer Does not Contain Image";
+		      logger->warn("Buffer Does not Contain Image");
+		      //cout << "Buffer Does not Contain Image";
 		    }
 	      cout << " " << FrameRateVal << "FPS: " << ( BandwidthVal / 1000000.0) << " Mb/s \r";
 	    }
@@ -475,19 +516,18 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
       ++DoodleIndex %=6;
       co++;
     }
-  cout << "Exiting While" << endl;
+  logger->warn("Stopping");
   PvGetChar(); // Flush Keybuffer for next stop
-  cout << endl << endl;
 
   // Tell device to Stop sending Images
-  cout << "Sending Acquisition Stop Command " << endl;
+  logger->warn("Sending Acquisition Stop Command");
   Stop->Execute();
   
   // Disable Streaming
-  cout << "Disabling Streaming " << endl;
+  logger->warn("Disabling Stream");
   Device->StreamDisable();
 
   // Stop Pipeline
-  cout << "Stopping Pipeline " << endl;
+  logger->warn("Stopping Pipeline");
   Pipeline->Stop();
 }

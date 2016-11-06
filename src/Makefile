@@ -1,5 +1,5 @@
 SRC_CPPS = \
-           cuic.cpp \
+           cuic_gige.cpp \
 
 EXEC     = cuic
 

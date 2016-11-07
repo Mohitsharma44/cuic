@@ -58,9 +58,8 @@ PV_INIT_SIGNAL_HANDLER();
 // -- Function Prototypes
 std::shared_ptr<spdlog::logger> initialize();
 std::pair<int, int> findInterface();
-//const PvDeviceInfo *SelectDevice( int interface_id, int device_id );
-const PvDeviceInfo *SelectDevice( PvResult *Result, int interface_id, int device_id );
-PvDevice *ConnectToDevice(const PvDeviceInfo *DeviceInfo);
+//PvDevice *ConnectToDevice(const PvDeviceInfo *DeviceInfo);
+PvDevice *ConnectToDevice(PvResult *Result, const PvDeviceInfo *DeviceInfo);
 PvStream *OpenStream( const PvDeviceInfo *DeviceInfo );
 void ConfigureStream( PvDevice *Device, PvStream *Stream);
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream);
@@ -83,6 +82,7 @@ std::shared_ptr<spdlog::logger> initialize()
   return combined_logger;
 }
 
+std::string current_device;
 std::shared_ptr<spdlog::logger> logger;
 
 int main(int, char*[])
@@ -108,24 +108,85 @@ int main(int, char*[])
 
   // A vector to store all the DeviceInfo
   std::vector<const PvDeviceInfo *>devinfo;
+  // A vector to store all Devices
+  std::vector<PvDevice *>vecDevices;
+  // A vector to store the Streams
+  std::vector<PvStream *>vecStreams;
+  // A vector to store the pipelines
+  std::vector<PvPipeline *>vecPipelines;
+
+
   for (int i=0; i<device_count; i++)
     {
       const PvInterface* Interface = System.GetInterface( interface_id );
       const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( i );
       devinfo.push_back(DeviceInfo);
+
+      // Connect to cameras
+      Device = PvDevice::CreateAndConnect( devinfo[i], &Result);
+      if ( Device == NULL )
+	{
+	  logger->warn(std::string("Unable to connect to: ") + DeviceInfo->GetDisplayID().GetAscii() );
+	}
+      logger->info(std::string("Connecting to Device: ") + DeviceInfo->GetDisplayID().GetAscii());
+      vecDevices.push_back(Device);
+      
+      // Open the Streams from Cameras
+      Stream = PvStream::CreateAndOpen( DeviceInfo->GetConnectionID(), &Result );
+      if ( Stream == NULL)
+	{
+	  logger->error(std::string("Cannot Open Stream ") + Result.GetCodeString().GetAscii() );
+	}
+      // Configure Streams
+      PvDeviceGEV* GEVDevice = dynamic_cast<PvDeviceGEV *>( Device );
+      if ( GEVDevice != NULL)
+	{
+	  PvStreamGEV* GEVStream = dynamic_cast<PvStreamGEV *>( Stream );
+	  // Negotiate Packet size
+	  GEVDevice->NegotiatePacketSize();
+	  // Configure device streaming destination
+	  GEVDevice->SetStreamDestination( GEVStream->GetLocalIPAddress(), GEVStream->GetLocalPort());
+	}
+      vecStreams.push_back(Stream);
+      
+      // Create Pipeline for the stream
+      PvPipeline *Pipeline = new PvPipeline( Stream );
+      if (Pipeline != NULL)
+	{
+	  uint32_t payload_size = Device->GetPayloadSize();
+	  // Set buffer count and Buffer size
+	  Pipeline->SetBufferCount( BUFFER_COUNT );
+	  Pipeline->SetBufferSize( payload_size );
+	  vecPipelines.push_back(Pipeline);
+	}
     }
 
   while ( !PvKbHit() )
     {
       for(unsigned int devi = 0; devi < devinfo.size(); ++devi) 
 	{
-        //cout << devinfo[i]->GetSerialNumber().GetAscii() << endl;
-	const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devinfo[devi] );
-	logger->info("Device "+SSTR(devi)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
-	sleep(1);
+	  sleep(1);
+	  const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devinfo[devi] );
+	  logger->info("Device "+SSTR(devi)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
+	  current_device = DeviceInfoGEV->GetMACAddress().GetAscii();
+	  AcquireImages( vecDevices[devi], vecStreams[devi], vecPipelines[devi] );
 	}
+      sleep(9);
     }
   PvGetChar();
+
+  // Shutdown everything
+  /*
+  for (unsigned int devi = 0; devi < devinfo.size(); ++devi)
+    {
+      delete vecPipelines[devi];
+      vecStreams[devi]->Close();
+      PvStream::Free( Stream );
+      logger->debug("Disconnecting the Device ");
+      vecDevices[devi]->Disconnect();
+      PvDevice::Free( Device );
+    }
+  */
   /*
   // Connect to all devices found on particular interface
   while ( !PvKbHit() )
@@ -212,106 +273,11 @@ std::pair<int, int> findInterface()
 	  //cout << " - IP Address: " << NIC->GetIPAddress().GetAscii() << endl << endl;
 	  gigEInterfaceId = x;
 	  deviceCount = DeviceCount;
-	  cout << x << deviceCount << endl;
+	  //cout << x << deviceCount << endl;
 	}
     }
   // Return a specific interface id
   return std::make_pair(gigEInterfaceId, deviceCount);
-}
-
-
-//const PvDeviceInfo *SelectDevice( int interface_id, int device_id )
-const PvDeviceInfo *SelectDevice( PvResult *Result, int interface_id, int device_id)
-{
-  PvSystem System;
-  //PvResult Result;
- 
-  //int device_id = 1;//, interface_id = 2;
-
-  //Result = System.Find();
-  if ( !Result->IsOK() )
-    {
-      logger->error(std::string("PvSystem err in connectToDevice: ") + Result->GetCodeString().GetAscii() );
-      //cout << "PvSystem err in connectToDevice: " << Result.GetCodeString().GetAscii();
-    }
-  const PvInterface* Interface = System.GetInterface( interface_id );
-  const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( device_id );
-  const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( DeviceInfo );
-  logger->info("Device "+SSTR(device_id)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
-  /*
-  uint32_t DeviceCount = Interface->GetDeviceCount();
-  for ( uint32_t y = 0; y < DeviceCount; y++ )
-    {
-      const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( y );
-      cout << DeviceInfo;
-      //cout << " - Device: " << y << endl;
-      //cout << " | .. Id: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
-      //cout << " | .. Serial Number: " << DeviceInfo->GetSerialNumber().GetAscii() << endl;
-      //cout << " | .. Vendor Name: " << DeviceInfo->GetVendorName().GetAscii() << endl;
-      //cout << " | .. Model Name: " << DeviceInfo->GetModelName().GetAscii() << endl;
-      
-      const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( DeviceInfo );
-      const PvDeviceInfoU3V* DeviceInfoU3V = dynamic_cast<const PvDeviceInfoU3V*>( DeviceInfo );
-      const PvDeviceInfoUSB* DeviceInfoUSB = dynamic_cast<const PvDeviceInfoUSB*>( DeviceInfo );
-      
-      if ( DeviceInfoGEV != NULL)
-	{
-	  logger->info("Device "+SSTR(y)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
-	  // GigE Vision devices
-	  
-	  //cout << " | .. MAC address: " << DeviceInfoGEV->GetMACAddress().GetAscii() << endl;
-	  //cout << " | .. IP Address: " << DeviceInfoGEV->GetIPAddress().GetAscii() << endl;
-	  //cout << " | .. Manufacturer Info: " << DeviceInfoGEV->GetManufacturerInfo().GetAscii() << endl;
-	  
-	  if (DeviceInfoGEV->IsConfigurationValid() != true)
-	    {
-	      logger->error("Does not have a valid IP configuration. Provide the IP in the same subnet as the interface");
-	    }
-	}
-      else 
-	{
-	  logger->error("No Device Found");
-	}
-    }
-  */
-  //cout << "Enter the Interface id to connect to " << endl;
-  //cin >> interface_id;
-  //cout << "Enter the Device id to connect to " << endl;
-  //cin >> device_id;
-  //const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( device_id );
-  return DeviceInfo;
-}
-
-
-PvDevice *ConnectToDevice( const PvDeviceInfo *DeviceInfo)
-{
-  PvSystem System;
-  PvDevice *Device;
-  PvResult Result;
-  
-  
-  Result = System.Find();
-  logger->info(std::string("Connecting to Device: ") + DeviceInfo->GetDisplayID().GetAscii());
-  //cout << "Connecting to Device: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
-  
-  // Creates and connects to the device controller
-  Device = PvDevice::CreateAndConnect( DeviceInfo, &Result);
-  if ( Device == NULL )
-    {
-      //cout << "Unable to connect to: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
-      logger->info(std::string("Unable to connect to: ") + DeviceInfo->GetDisplayID().GetAscii() );
-    }
-  else
-    {
-      //cout << "Connected to: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
-      //logger->info(std::string("Connected to: ") +DeviceInfo->GetDisplayID().GetAscii() );
-      // REMOVE IT!!!!
-      //cout << "Disconnecting from: " << DeviceInfo->GetDisplayID().GetAscii() << endl;
-      //PvDevice::Free( Device );
-        
-      return Device;
-
-    }
 }
 
 
@@ -323,7 +289,7 @@ PvStream *OpenStream( const PvDeviceInfo *DeviceInfo )
 
   Result = System.Find();
   // Open Stream to GigE or USB3
-  logger->info("Opening Stream to device ");
+  logger->debug("Opening Stream to device ");
   //cout << "Opening Stream to device " << endl;
   Stream = PvStream::CreateAndOpen( DeviceInfo->GetConnectionID(), &Result );
   if ( Stream == NULL)
@@ -378,7 +344,7 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
   PvGenCommand *Stop = dynamic_cast<PvGenCommand *>( DeviceParams->Get( "AcquisitionStop" ));
 
   // Initialize Pipeline
-  logger->info("Starting Pipeling");
+  logger->debug("Starting Pipeline");
   Pipeline->Start();
 
   // Get Stream Parameters
@@ -389,7 +355,7 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
   PvGenFloat *Bandwidth = dynamic_cast<PvGenFloat *>( StreamParams->Get( "Bandwidth" ));
 
   // Enable Streaming and Start Acquisition
-  logger->info("Enabling Streaming and Starting Acquisition");
+  logger->debug("Enabling Streaming and Starting Acquisition");
   //cout << "Enabling Streaming and Starting Acquisition" << endl;
   Device->StreamEnable();
   Start->Execute();
@@ -425,10 +391,10 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	  // Tyoe of info in buffer
 	  Type = Buffer->GetPayloadType();
 	  
-	  cout << fixed << setprecision( 1 );
-	  cout << Doodle[ DoodleIndex ];
-	  cout << " BlockID: " << uppercase << hex << setfill( '0' ) << 
-	    setw( 16 ) << Buffer->GetBlockID();
+	  //cout << fixed << setprecision( 1 );
+	  //cout << Doodle[ DoodleIndex ];
+	  //cout << " BlockID: " << uppercase << hex << setfill( '0' ) << 
+	  //  setw( 16 ) << Buffer->GetBlockID();
 	  
 	  if ( Type == PvPayloadTypeImage)
 	    {
@@ -487,11 +453,11 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      // For TIFF, use PvBufferFormatTIFF
 	      // For BMP, use PvBufferFormatBMP
 	      // changing from co to timestamp
-	      //fname = "/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/" + SSTR( timestamp ) + ".raw";
-	      //BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
+	      fname = "/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/"+ current_device + "-" + SSTR( timestamp ) + ".raw";
+	      BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
 	      
 	      // Sleep before restarting
-	      //sleep(0.2);	
+	      //sleep(0.2);
 	      //delete &BuffWriter;
 	      //delete &Image;
 	      //delete &ConfigWriter;
@@ -501,8 +467,6 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      // Tell device to Start sending Images
 	      //cout << "Sending Acquisition Start Command " << endl;
 	      //Start->Execute();
-	      
-	      
 	    }
 	  else
 	    {
@@ -523,25 +487,26 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
       logger->debug("Releasing buffer back to pipeline");
       Pipeline->ReleaseBuffer( Buffer );
     }
+  /*
   else
     {
       //Retrieve Buffer failure
       cout << Doodle[ DoodleIndex ] << " " << Result.GetCodeString().GetAscii() << "\r";
     }
-  
+  */
   //}
-  logger->warn("Stopping");
+  logger->debug("Stopping");
   //PvGetChar(); // Flush Keybuffer for next stop
   
   // Tell device to Stop sending Images
-  logger->warn("Sending Acquisition Stop Command");
+  logger->debug("Sending Acquisition Stop Command");
   Stop->Execute();
   
   // Disable Streaming
-  logger->warn("Disabling Stream");
+  logger->debug("Disabling Stream");
   Device->StreamDisable();
 
   // Stop Pipeline
-  logger->warn("Stopping Pipeline");
+  logger->debug("Stopping Pipeline");
   Pipeline->Stop();
 }

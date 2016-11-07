@@ -58,7 +58,8 @@ PV_INIT_SIGNAL_HANDLER();
 // -- Function Prototypes
 std::shared_ptr<spdlog::logger> initialize();
 std::pair<int, int> findInterface();
-const PvDeviceInfo *SelectDevice( int interface_id, int device_id );
+//const PvDeviceInfo *SelectDevice( int interface_id, int device_id );
+const PvDeviceInfo *SelectDevice( PvResult *Result, int interface_id, int device_id );
 PvDevice *ConnectToDevice(const PvDeviceInfo *DeviceInfo);
 PvStream *OpenStream( const PvDeviceInfo *DeviceInfo );
 void ConfigureStream( PvDevice *Device, PvStream *Stream);
@@ -93,20 +94,45 @@ int main(int, char*[])
   PvDevice *Device = NULL;
   PvStream *Stream = NULL;
   PvPipeline *Pipeline = NULL;
-
+  PvSystem System;
+  PvResult Result;
+  
   PV_SAMPLE_INIT();
   // Get interface_id and device count in that interface
   inter = findInterface();
   interface_id = inter.first;
   device_count = inter.second;
-  cout << interface_id << device_count << endl;
-  
+
+  // Find all the devices
+  Result = System.Find();
+
+  // A vector to store all the DeviceInfo
+  std::vector<const PvDeviceInfo *>devinfo;
+  for (int i=0; i<device_count; i++)
+    {
+      const PvInterface* Interface = System.GetInterface( interface_id );
+      const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( i );
+      devinfo.push_back(DeviceInfo);
+    }
+
+  while ( !PvKbHit() )
+    {
+      for(unsigned int devi = 0; devi < devinfo.size(); ++devi) 
+	{
+        //cout << devinfo[i]->GetSerialNumber().GetAscii() << endl;
+	const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devinfo[devi] );
+	logger->info("Device "+SSTR(devi)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
+	sleep(1);
+	}
+    }
+  PvGetChar();
+  /*
   // Connect to all devices found on particular interface
   while ( !PvKbHit() )
     {
       for (int i=0; i<device_count; i++)
 	{
-	  DeviceInfo = SelectDevice( interface_id, i );
+	  DeviceInfo = SelectDevice( &Result, interface_id, i );
 	  
 	  if ( DeviceInfo != NULL )
 	    {
@@ -133,10 +159,13 @@ int main(int, char*[])
 		  Device->Disconnect();
 		  PvDevice::Free( Device );	  
 		}
-	    }
+	 
+		}
+	  
 	}
     }
   PvGetChar();
+  */
   PV_SAMPLE_TERMINATE();
   
   return 0;
@@ -155,7 +184,7 @@ std::pair<int, int> findInterface()
   Result = System.Find();
   if ( !Result.IsOK() )
     {
-      logger->error(std::string("PvSystem err in findDevices: ") + Result.GetCodeString().GetAscii() );
+      logger->error(std::string("PvSystem err in findDevices: ") + *Result.GetCodeString().GetAscii() );
       return std::make_pair(-1, -1);
     }
 
@@ -191,17 +220,18 @@ std::pair<int, int> findInterface()
 }
 
 
-const PvDeviceInfo *SelectDevice( int interface_id, int device_id )
+//const PvDeviceInfo *SelectDevice( int interface_id, int device_id )
+const PvDeviceInfo *SelectDevice( PvResult *Result, int interface_id, int device_id)
 {
   PvSystem System;
-  PvResult Result;
+  //PvResult Result;
  
   //int device_id = 1;//, interface_id = 2;
 
-  Result = System.Find();
-  if ( !Result.IsOK() )
+  //Result = System.Find();
+  if ( !Result->IsOK() )
     {
-      logger->error(std::string("PvSystem err in connectToDevice: ") + Result.GetCodeString().GetAscii() );
+      logger->error(std::string("PvSystem err in connectToDevice: ") + Result->GetCodeString().GetAscii() );
       //cout << "PvSystem err in connectToDevice: " << Result.GetCodeString().GetAscii();
     }
   const PvInterface* Interface = System.GetInterface( interface_id );

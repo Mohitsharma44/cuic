@@ -18,8 +18,9 @@ PUREGEV_ROOT        ?= ../../..
 PV_LIBRARY_PATH      =$(PUREGEV_ROOT)/lib
 
 CFLAGS              += -I$(PUREGEV_ROOT)/include -I.
-CPPFLAGS            += -I$(PUREGEV_ROOT)/include -I. 
-CPPFLAGS	    += -std=c++11 -pthread -I../include
+CPPFLAGS            += -I$(PUREGEV_ROOT)/include -I.
+CFLAGS		    += -lpthread -pthread
+CPPFLAGS	    += -std=c++11 -pthread -lpthread -I../include
 ifdef _DEBUG
     CFLAGS    += -g -D_DEBUG
     CPPFLAGS  += -g -D_DEBUG
@@ -40,7 +41,9 @@ LDFLAGS             += -L$(PUREGEV_ROOT)/lib         \
                         -lPvVirtualDevice	         \
 		                -lPvAppUtils                 \
                         -lPvPersistence              \
-                        -lPvSerial
+                        -lPvSerial		    \
+			-lpthread		    \
+			-pthread
 
 
 

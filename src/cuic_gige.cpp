@@ -21,12 +21,14 @@ Copyright (c) CUSP
 
 #include <sstream>
 #include <unistd.h>
-
+#include <iostream>
+#include <memory>
+#include <ctime>
+#include <pthread.h>
 #include <PvSampleUtils.h>
 #include <PvSystem.h>
 #include <PvInterface.h>
 #include <PvDevice.h>
-
 #include <PvDeviceGEV.h>
 #include <PvDeviceU3V.h>
 #include <PvStream.h>
@@ -34,13 +36,11 @@ Copyright (c) CUSP
 #include <PvStreamU3V.h>
 #include <PvPipeline.h>
 #include <PvBuffer.h>
-
 #include <PvBufferWriter.h>
 #include <PvConfigurationWriter.h>
 
 #include "spdlog/spdlog.h"
-#include <iostream>
-#include <memory>
+#include "config.h"
 
 // For casting int to string
 #define SSTR( x ) static_cast< std::ostringstream & >(( std::ostringstream() << std::dec << x ) ).str()
@@ -52,6 +52,7 @@ Copyright (c) CUSP
 #define STRING_INFORMATION_TAG ( "Copyright" )
 #define CUSP_COPYRIGHT ( "CUSP 2016" )
 #define IFNAME ("eth0")
+const int NUM_SECONDS = 10;
 
 PV_INIT_SIGNAL_HANDLER();
 
@@ -85,27 +86,10 @@ std::shared_ptr<spdlog::logger> initialize()
 std::string current_device;
 std::shared_ptr<spdlog::logger> logger;
 
-int main(int, char*[])
+// Struct to hold data/objects on/of every device
+/*
+struct device_data
 {
-  logger = initialize();
-  std::pair<int, int> inter;
-  int interface_id, device_count;
-  const PvDeviceInfo *DeviceInfo = NULL;
-  PvDevice *Device = NULL;
-  PvStream *Stream = NULL;
-  PvPipeline *Pipeline = NULL;
-  PvSystem System;
-  PvResult Result;
-  
-  PV_SAMPLE_INIT();
-  // Get interface_id and device count in that interface
-  inter = findInterface();
-  interface_id = inter.first;
-  device_count = inter.second;
-
-  // Find all the devices
-  Result = System.Find();
-
   // A vector to store all the DeviceInfo
   std::vector<const PvDeviceInfo *>devinfo;
   // A vector to store all Devices
@@ -114,22 +98,100 @@ int main(int, char*[])
   std::vector<PvStream *>vecStreams;
   // A vector to store the pipelines
   std::vector<PvPipeline *>vecPipelines;
+};
+*/
+struct device_data
+{
+  // Store Device Info
+  const PvDeviceInfo *Devinfo;
+  // Store Device Objects
+  PvDevice *Device;
+  // Store Stream Objects
+  PvStream *Stream;
+  // Store Pipelines
+  PvPipeline *Pipeline;
+};
 
+/*
+void *capture_image(void *device_data_arg)
+  {
+    struct device_data *devd;
+    devd = (struct device_data *) device_data_arg;
+    while ( !PvKbHit() )
+      {
+	for(unsigned int devi = 0; devi < devd->Devinfo.size(); ++devi) 
+	  {
+	    const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devd->Devinfo[devi] );
+	    logger->info("Device "+SSTR(devi)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
+	    current_device = DeviceInfoGEV->GetMACAddress().GetAscii();
+	    AcquireImages( devd->vecDevices[devi], devd->vecStreams[devi], devd->vecPipelines[devi] );
+	    sleep(2);
+	  }
+      }
+    PvGetChar();
+  }
+*/
+
+void *capture_image(void *device_data_arg)
+  {
+    struct device_data *devdata;
+    devdata = (struct device_data *) device_data_arg;
+    while ( !PvKbHit() )
+      {
+	const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devdata->Devinfo );
+	logger->info("Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
+	current_device = DeviceInfoGEV->GetMACAddress().GetAscii();
+	AcquireImages( devdata->Device, devdata->Stream, devdata->Pipeline );
+	sleep(5);
+      }
+    PvGetChar();
+  }
+
+
+
+int main(int, char*[])
+{
+  logger = initialize();
+  spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%n] [%l] [thread %t] - %v");
+  std::pair<int, int> inter;
+  int interface_id, device_count;
+  const PvDeviceInfo *DeviceInfo = NULL;
+  PvDevice *Device = NULL;
+  PvStream *Stream = NULL;
+  PvPipeline *Pipeline = NULL;
+  PvSystem System;
+  PvResult Result;
+  pthread_t thread1;
+  int thread_retcode;
+  //struct device_data devd;
+  
+  PV_SAMPLE_INIT();
+  // Get interface_id and device count in that interface
+  inter = findInterface();
+  interface_id = inter.first;
+  device_count = inter.second;
+  // Find all the devices
+  Result = System.Find();
+  
+  pthread_t threads[device_count];
+  struct device_data devd[device_count];
 
   for (int i=0; i<device_count; i++)
     {
       const PvInterface* Interface = System.GetInterface( interface_id );
       const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( i );
-      devinfo.push_back(DeviceInfo);
+      //devd.devinfo.push_back(DeviceInfo);
+      devd[i].Devinfo = DeviceInfo;
 
       // Connect to cameras
-      Device = PvDevice::CreateAndConnect( devinfo[i], &Result);
+      Device = PvDevice::CreateAndConnect( devd[i].Devinfo, &Result);
       if ( Device == NULL )
 	{
 	  logger->warn(std::string("Unable to connect to: ") + DeviceInfo->GetDisplayID().GetAscii() );
 	}
       logger->info(std::string("Connecting to Device: ") + DeviceInfo->GetDisplayID().GetAscii());
-      vecDevices.push_back(Device);
+      //devd.vecDevices.push_back(Device);
+      devd[i].Device = Device;
       
       // Open the Streams from Cameras
       Stream = PvStream::CreateAndOpen( DeviceInfo->GetConnectionID(), &Result );
@@ -147,8 +209,9 @@ int main(int, char*[])
 	  // Configure device streaming destination
 	  GEVDevice->SetStreamDestination( GEVStream->GetLocalIPAddress(), GEVStream->GetLocalPort());
 	}
-      vecStreams.push_back(Stream);
-      
+      //devd.vecStreams.push_back(Stream);
+      devd[i].Stream = Stream;
+
       // Create Pipeline for the stream
       PvPipeline *Pipeline = new PvPipeline( Stream );
       if (Pipeline != NULL)
@@ -157,23 +220,43 @@ int main(int, char*[])
 	  // Set buffer count and Buffer size
 	  Pipeline->SetBufferCount( BUFFER_COUNT );
 	  Pipeline->SetBufferSize( payload_size );
-	  vecPipelines.push_back(Pipeline);
+	  //devd.vecPipelines.push_back(Pipeline);
+	  devd[i].Pipeline = Pipeline;
 	}
+    }
+  
+  for (int i=0; i<device_count; i++)
+    {
+      pthread_create( &threads[i], NULL, capture_image, (void *)&devd[i] );
+      if (thread_retcode) 
+	{
+	  logger->error("Unable to create thread: " + SSTR(thread_retcode));
+	  exit(-1);
+	}
+      sleep(3);
     }
 
+  // Join Threads
+  for (int i=0; i<device_count; i++)
+    {
+      pthread_join( threads[i], NULL );
+    }
+
+  /*
   while ( !PvKbHit() )
     {
-      for(unsigned int devi = 0; devi < devinfo.size(); ++devi) 
+      for(unsigned int devi = 0; devi < devd.devinfo.size(); ++devi) 
 	{
-	  sleep(1);
-	  const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devinfo[devi] );
+	  const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devd.devinfo[devi] );
 	  logger->info("Device "+SSTR(devi)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
 	  current_device = DeviceInfoGEV->GetMACAddress().GetAscii();
-	  AcquireImages( vecDevices[devi], vecStreams[devi], vecPipelines[devi] );
+	  AcquireImages( devd.vecDevices[devi], devd.vecStreams[devi], devd.vecPipelines[devi] );
+	  sleep(2);
 	}
-      sleep(9);
+      sleep(5);
     }
   PvGetChar();
+  */
 
   // Shutdown everything
   /*
@@ -236,7 +319,7 @@ int main(int, char*[])
 std::pair<int, int> findInterface()
 {
   int gigEInterfaceId, deviceCount;
-  logger->info("Finding Devices on Interface");
+  logger->info("Finding Devices on Interface: "+SSTR(IFNAME));
   PvResult Result;
   //const PvDeviceInfo* lLastDeviceInfo = NULL;
 
@@ -401,7 +484,8 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      // Parameters for storing metadata
 	      PvConfigurationWriter ConfigWriter;
 	      
-	      uint64_t timestamp = Buffer->GetReceptionTime();
+	      //uint64_t timestamp = Buffer->GetReceptionTime();
+	      std::time_t timestamp = std::time(nullptr);
 	      //cout << "Timestamp: " << timestamp << endl;
 	      //meta_fname = SSTR( timestamp ) + ".hdr";
 	      
@@ -453,11 +537,12 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      // For TIFF, use PvBufferFormatTIFF
 	      // For BMP, use PvBufferFormatBMP
 	      // changing from co to timestamp
-	      fname = "/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/"+ current_device + "-" + SSTR( timestamp ) + ".raw";
-	      BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
+	      logger->info("Image Captured: "+SSTR(timestamp));
+	      //fname = "/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/"+ current_device + "-" + SSTR( timestamp ) + ".raw";
+	      //BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
 	      
 	      // Sleep before restarting
-	      //sleep(0.2);
+	      //sleep(0.5);
 	      //delete &BuffWriter;
 	      //delete &Image;
 	      //delete &ConfigWriter;

@@ -24,7 +24,7 @@
 #include "spdlog/spdlog.h"
 
 //std::shared_ptr<spdlog::logger> confinitialize();
-bool StoreConfiguration(PvDevice *Device, PvStream *Stream, const char *mac_addr);
-bool RestoreConfiguration(PvDevice *Device, PvStream *Stream, const char *mac_addr);
+bool StoreConfiguration(PvDevice *Device, PvStream *Stream, std::string mac_addr);
+bool RestoreConfiguration(PvDevice *Device, PvStream *Stream, std::string mac_addr);
 
 #endif

@@ -64,7 +64,7 @@ PvDevice *ConnectToDevice(PvResult *Result, const PvDeviceInfo *DeviceInfo);
 PvStream *OpenStream( const PvDeviceInfo *DeviceInfo );
 void ConfigureStream( PvDevice *Device, PvStream *Stream);
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream);
-void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *pipeline);
+void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *pipeline);
 // -- 
 
 std::shared_ptr<spdlog::logger> initialize()
@@ -83,7 +83,7 @@ std::shared_ptr<spdlog::logger> initialize()
   return combined_logger;
 }
 
-const char *current_device;
+//const char *current_device;
 std::shared_ptr<spdlog::logger> logger;
 
 // Struct to hold data/objects on/of every device
@@ -103,6 +103,7 @@ struct device_data
 struct device_data
 {
   // Store Device Info
+  std::string mac_addr;
   const PvDeviceInfo *Devinfo;
   // Store Device Objects
   PvDevice *Device;
@@ -139,12 +140,11 @@ void *captureImage(void *device_data_arg)
     while ( !PvKbHit() )
       {
 	const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devdata->Devinfo );
-	current_device = DeviceInfoGEV->GetMACAddress().GetAscii();
-	RestoreConfiguration(devdata->Device, devdata->Stream, current_device);
-	sleep(0.5);
+	//StoreConfiguration(devdata->Device, devdata->Stream, devdata->mac_addr);
+	//sleep(0.5);
 	logger->info("Capturing from Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
-	AcquireImages( devdata->Device, devdata->Stream, devdata->Pipeline );
-	sleep(6);
+	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline );
+	sleep(59);
       }
     PvGetChar();
   }
@@ -182,6 +182,8 @@ int main(int, char*[])
       const PvInterface* Interface = System.GetInterface( interface_id );
       const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( i );
       //devd.devinfo.push_back(DeviceInfo);
+      const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( DeviceInfo );
+      devd[i].mac_addr = (PvString) DeviceInfoGEV->GetMACAddress().GetAscii();
       devd[i].Devinfo = DeviceInfo;
 
       // Connect to cameras
@@ -234,7 +236,7 @@ int main(int, char*[])
 	  logger->error("Unable to create thread: " + SSTR(thread_retcode));
 	  exit(-1);
 	}
-      sleep(1);
+      sleep(2);
     }
 
   // Join Threads
@@ -416,183 +418,180 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 }
 
 
-
-void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
+ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 {
-
-  // Get Device Parameters to control streaming
-  PvGenParameterArray *DeviceParams = Device->GetParameters();
-
-  // Map Acquisition Start and Stop Commands
-  PvGenCommand *Start = dynamic_cast<PvGenCommand *>( DeviceParams->Get( "AcquisitionStart" ));
-  PvGenCommand *Stop = dynamic_cast<PvGenCommand *>( DeviceParams->Get( "AcquisitionStop" ));
-
-  // Initialize Pipeline
-  logger->debug("Starting Pipeline");
-  Pipeline->Start();
-
-  // Get Stream Parameters
-  PvGenParameterArray *StreamParams = Stream->GetParameters();
-
-  // Map sone GenICam stream stats counters
-  PvGenFloat *FrameRate = dynamic_cast<PvGenFloat *>( StreamParams->Get( "AcquisitionRate" ));
-  PvGenFloat *Bandwidth = dynamic_cast<PvGenFloat *>( StreamParams->Get( "Bandwidth" ));
-
-  // Enable Streaming and Start Acquisition
-  logger->debug("Enabling Streaming and Starting Acquisition");
-  //cout << "Enabling Streaming and Starting Acquisition" << endl;
-  Device->StreamEnable();
-  Start->Execute();
-  
-  // Acquire Images until a Keypress
-  char Doodle[] = "|\\-|-/";
-  int DoodleIndex = 0;
-  double FrameRateVal = 0.0;
-  double BandwidthVal = 0.0;
-  std::string meta_fname;
-  std::string fname;
-
-  //while ( !PvKbHit() )
-  //  {
-  PvBuffer *Buffer = NULL;
-  PvResult OperationalResult;
-  // Retrieve next buffer
-  PvResult Result = Pipeline->RetrieveNextBuffer( &Buffer, 1000, &OperationalResult );
-  if ( Result.IsOK() )
-    {
-      if ( OperationalResult.IsOK() )
-	{
-	  PvPayloadType Type;
-	  // -- Processing on Buffer!!!!
-	  
-	  // --
-	  
-	  FrameRate->GetValue( FrameRateVal );
-	  Bandwidth->GetValue( BandwidthVal );
-	  
-	  // Display Width and Height of Image
-	  uint32_t Width = 0, Height = 0;
-	  // Tyoe of info in buffer
-	  Type = Buffer->GetPayloadType();
-	  
-	  //cout << fixed << setprecision( 1 );
-	  //cout << Doodle[ DoodleIndex ];
-	  //cout << " BlockID: " << uppercase << hex << setfill( '0' ) << 
-	  //  setw( 16 ) << Buffer->GetBlockID();
-	  
-	  if ( Type == PvPayloadTypeImage)
-	    {
-	      // Parameters for storing metadata
-	      PvConfigurationWriter ConfigWriter;
+   // Get Device Parameters to control streaming
+   PvGenParameterArray *DeviceParams = Device->GetParameters();
+   
+   // Map Acquisition Start and Stop Commands
+   PvGenCommand *Start = dynamic_cast<PvGenCommand *>( DeviceParams->Get( "AcquisitionStart" ));
+   PvGenCommand *Stop = dynamic_cast<PvGenCommand *>( DeviceParams->Get( "AcquisitionStop" ));
+   
+   // Initialize Pipeline
+   logger->debug("Starting Pipeline");
+   Pipeline->Start();
+   
+   // Get Stream Parameters
+   PvGenParameterArray *StreamParams = Stream->GetParameters();
+   
+   // Map sone GenICam stream stats counters
+   PvGenFloat *FrameRate = dynamic_cast<PvGenFloat *>( StreamParams->Get( "AcquisitionRate" ));
+   PvGenFloat *Bandwidth = dynamic_cast<PvGenFloat *>( StreamParams->Get( "Bandwidth" ));
+   
+   // Enable Streaming and Start Acquisition
+   logger->debug("Enabling Streaming and Starting Acquisition");
+   //cout << "Enabling Streaming and Starting Acquisition" << endl;
+   Device->StreamEnable();
+   Start->Execute();
+   
+   // Acquire Images until a Keypress
+   char Doodle[] = "|\\-|-/";
+   int DoodleIndex = 0;
+   double FrameRateVal = 0.0;
+   double BandwidthVal = 0.0;
+   std::string meta_fname;
+   std::string fname;
+   
+   //while ( !PvKbHit() )
+   //  {
+   PvBuffer *Buffer = NULL;
+   PvResult OperationalResult;
+   // Retrieve next buffer
+   PvResult Result = Pipeline->RetrieveNextBuffer( &Buffer, 1000, &OperationalResult );
+   if ( Result.IsOK() )
+     {
+       if ( OperationalResult.IsOK() )
+	 {
+	   PvPayloadType Type;
+	   // -- Processing on Buffer!!!!
+	   
+	   // --
+	   
+	   FrameRate->GetValue( FrameRateVal );
+	   Bandwidth->GetValue( BandwidthVal );
+	   
+	   // Display Width and Height of Image
+	   uint32_t Width = 0, Height = 0;
+	   // Tyoe of info in buffer
+	   Type = Buffer->GetPayloadType();
+	   
+	   //cout << fixed << setprecision( 1 );
+	   //cout << Doodle[ DoodleIndex ];
+	   //cout << " BlockID: " << uppercase << hex << setfill( '0' ) << 
+	   //  setw( 16 ) << Buffer->GetBlockID();
+	   
+	   if ( Type == PvPayloadTypeImage)
+	     {
+	       // Parameters for storing metadata
+	       PvConfigurationWriter ConfigWriter;
+	       
+	       //uint64_t timestamp = Buffer->GetReceptionTime();
+	       std::time_t timestamp = std::time(nullptr);
+	       //cout << "Timestamp: " << timestamp << endl;
+	       //meta_fname = SSTR( timestamp ) + ".hdr";
+	       
+	       // Store Metadata first
+	       //   Store Device related info
+	       //ConfigWriter.Store( Device, DEVICE_CONFIGURATION_TAG );
+	       //   Store Stream related info
+	       //ConfigWriter.Store( Stream, STREAM_CONFIGURATION_TAG );
+	       //   CUSP String
+	       //ConfigWriter.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
+	       // Write Metadata to the file
+	       //ConfigWriter.Save( meta_fname.c_str() );
+	       //sleep(2);
+	       
+	       // Get Image specific Buffer interface
+	       PvImage *Image = Buffer->GetImage();
+	       // Read Width and Height
+	       Width = Image->GetWidth();
+	       Height = Image->GetHeight();
+	       logger->debug("Image Width: "+SSTR( Width ) + "Image Height: "+ SSTR( Height ));
+	       //cout << " W: " << dec << Width << "H: " << Height;
+	       //cout << "Saving Image ... ";
 	      
-	      //uint64_t timestamp = Buffer->GetReceptionTime();
-	      std::time_t timestamp = std::time(nullptr);
-	      //cout << "Timestamp: " << timestamp << endl;
-	      //meta_fname = SSTR( timestamp ) + ".hdr";
+	       // Tell device to Stop sending Images
+	       //cout << "Sending Acquisition Stop Command " << endl;
+	       Stop->Execute();
+	       // Disable Streaming                                                               
+	       //cout << "Disabling Streaming " << endl;
+	       //Device->StreamDisable();
+	       
 	      
-	      // Store Metadata first
-	      //   Store Device related info
-	      //ConfigWriter.Store( Device, DEVICE_CONFIGURATION_TAG );
-	      //   Store Stream related info
-	      //ConfigWriter.Store( Stream, STREAM_CONFIGURATION_TAG );
-	      //   CUSP String
-	      //ConfigWriter.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
-	      // Write Metadata to the file
-	      //ConfigWriter.Save( meta_fname.c_str() );
-	      //sleep(2);
-	      
-	      // Get Image specific Buffer interface
-	      PvImage *Image = Buffer->GetImage();
-	      // Read Width and Height
-	      Width = Image->GetWidth();
-	      Height = Image->GetHeight();
-	      logger->debug("Image Width: "+SSTR( Width ) + "Image Height: "+ SSTR( Height ));
-	      //cout << " W: " << dec << Width << "H: " << Height;
-	      //cout << "Saving Image ... ";
-	      
-	      // Tell device to Stop sending Images
-	      //cout << "Sending Acquisition Stop Command " << endl;
-	      Stop->Execute();
-	      // Disable Streaming                                                               
-	      //cout << "Disabling Streaming " << endl;
-	      //Device->StreamDisable();
-	      
-	      
-	      // Allocate memory of the size of the image
-	      //Image->Alloc( Width, Height, PvPixelMono8 );
-	      
-	      // Fill the buffer
-	      //uint8_t *DataPtr = Image->GetDataPointer();
-	      //for ( uint32_t y = 0; y < Image->GetHeight(); y++ )
-	      //  {
-	      //    uint32_t HCount = y;
-	      //   for ( uint32_t x = 0; x < Image->GetWidth(); x++ )
-	      //	{
-	      //	  *( DataPtr++ ) = ( HCount++ ) % 256;
-	      //	}
-	      //}
-	      
-	      PvBufferWriter BuffWriter;
-	      
-	      // For RAW, use PvBufferFormatRaw
-	      // For TIFF, use PvBufferFormatTIFF
-	      // For BMP, use PvBufferFormatBMP
-	      // changing from co to timestamp
-	      logger->critical(current_device);
-	      fname = std::string("/mnt/ramdisk/") + current_device +  "-" + SSTR( timestamp ) + ".raw";
-	      BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
-	      logger->info("Image Captured: "+SSTR(fname));
-	      // Sleep before restarting
-	      //sleep(0.5);
-	      //delete &BuffWriter;
-	      //delete &Image;
-	      //delete &ConfigWriter;
-	      // Enable Streaming                                                               
-	      //cout << "Enable Streaming " << endl;
-	      //Device->StreamEnable();
-	      // Tell device to Start sending Images
-	      //cout << "Sending Acquisition Start Command " << endl;
-	      //Start->Execute();
-	    }
-	  else
-	    {
-	      logger->warn("Buffer Does not Contain Image");
-	      //cout << "Buffer Does not Contain Image";
-	    }
-	  //cout << " " << FrameRateVal << "FPS: " << ( BandwidthVal / 1000000.0) << " Mb/s \r";
-	  logger->debug("FPS: "+SSTR( FrameRateVal ) + "Bandwidth: " +SSTR( BandwidthVal/ 1000000.0) + " MB/s");
-	}
-      else
-	{
-	  // Operational Result is non OK
-	  logger->error("Operational result is non OK: "+std::string(OperationalResult.GetCodeString().GetAscii()));
-	  //cout << Doodle[ DoodleIndex ] << " " << OperationalResult.GetCodeString().GetAscii() << "\r";
-	}
-      
-      // Release buffer back to pipeline
-      logger->debug("Releasing buffer back to pipeline");
-      Pipeline->ReleaseBuffer( Buffer );
-    }
-  /*
-  else
-    {
-      //Retrieve Buffer failure
-      cout << Doodle[ DoodleIndex ] << " " << Result.GetCodeString().GetAscii() << "\r";
-    }
-  */
-  //}
-  logger->debug("Stopping");
-  //PvGetChar(); // Flush Keybuffer for next stop
-  
-  // Tell device to Stop sending Images
-  logger->debug("Sending Acquisition Stop Command");
-  Stop->Execute();
-  
-  // Disable Streaming
-  logger->debug("Disabling Stream");
-  Device->StreamDisable();
-
-  // Stop Pipeline
-  logger->debug("Stopping Pipeline");
-  Pipeline->Stop();
-}
+	       // Allocate memory of the size of the image
+	       //Image->Alloc( Width, Height, PvPixelMono8 );
+	       
+	       // Fill the buffer
+	       //uint8_t *DataPtr = Image->GetDataPointer();
+	       //for ( uint32_t y = 0; y < Image->GetHeight(); y++ )
+	       //  {
+	       //    uint32_t HCount = y;
+	       //   for ( uint32_t x = 0; x < Image->GetWidth(); x++ )
+	       //	{
+	       //	  *( DataPtr++ ) = ( HCount++ ) % 256;
+	       //	}
+	       //}
+	       
+	       PvBufferWriter BuffWriter;
+	       
+	       // For RAW, use PvBufferFormatRaw
+	       // For TIFF, use PvBufferFormatTIFF
+	       // For BMP, use PvBufferFormatBMP
+	       
+	       fname = "/mnt/ramdisk/" + mac_addr +  "-" + SSTR( timestamp ) + ".raw";
+	       
+	       logger->info("Image Captured: "+SSTR(fname));
+	       // Sleep before restarting
+	       sleep(1);
+	       //delete &BuffWriter;
+	       //delete &Image;
+	       //delete &ConfigWriter;
+	       // Enable Streaming                                                               
+	       //cout << "Enable Streaming " << endl;
+	       //Device->StreamEnable();
+	       // Tell device to Start sending Images
+	       //cout << "Sending Acquisition Start Command " << endl;
+	       //Start->Execute();
+	     }
+	   else
+	     {
+	       logger->warn("Buffer Does not Contain Image");
+	       //cout << "Buffer Does not Contain Image";
+	     }
+	   //cout << " " << FrameRateVal << "FPS: " << ( BandwidthVal / 1000000.0) << " Mb/s \r";
+	   logger->debug("FPS: "+SSTR( FrameRateVal ) + "Bandwidth: " +SSTR( BandwidthVal/ 1000000.0) + " MB/s");
+	 }
+       else
+	 {
+	   // Operational Result is non OK
+	   logger->error("Operational result is non OK: "+std::string(OperationalResult.GetCodeString().GetAscii()));
+	   //cout << Doodle[ DoodleIndex ] << " " << OperationalResult.GetCodeString().GetAscii() << "\r";
+	 }
+       
+       // Release buffer back to pipeline
+       logger->debug("Releasing buffer back to pipeline");
+       Pipeline->ReleaseBuffer( Buffer );
+     }
+   /*
+     else
+     {
+     //Retrieve Buffer failure
+     cout << Doodle[ DoodleIndex ] << " " << Result.GetCodeString().GetAscii() << "\r";
+     }
+   */
+   //}
+   logger->debug("Stopping");
+   //PvGetChar(); // Flush Keybuffer for next stop
+   
+   // Tell device to Stop sending Images
+   logger->debug("Sending Acquisition Stop Command");
+   Stop->Execute();
+   
+   // Disable Streaming
+   logger->debug("Disabling Stream");
+   Device->StreamDisable();
+   
+   // Stop Pipeline
+   logger->debug("Stopping Pipeline");
+   Pipeline->Stop();
+ }

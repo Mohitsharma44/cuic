@@ -28,11 +28,12 @@ std::shared_ptr<spdlog::logger> confinitialize()
 std::shared_ptr<spdlog::logger> configlogger;
 */
 // Write device configuration to a file //
-bool StoreConfiguration(PvDevice *Device, PvStream *Stream, const char *mac_addr)
+bool StoreConfiguration(PvDevice *Device, PvStream *Stream, std::string mac_addr)
 {
   //configlogger->info("Writing Device Configuration to: "+ SSTR(FILENAME));
   PvString mac;
-  mac = (PvString)mac_addr;
+  mac_addr += ".pvxml";
+  mac = (PvString)mac_addr.c_str();
   PvConfigurationWriter Writer;
   Writer.Store( Device, DEVICE_CONFIGURATION_TAG );
   Writer.Store( Stream, STREAM_CONFIGURATION_TAG );
@@ -41,12 +42,13 @@ bool StoreConfiguration(PvDevice *Device, PvStream *Stream, const char *mac_addr
   return true;
 }
 
-bool RestoreConfiguration(PvDevice *Device, PvStream *Stream, const char *mac_addr)
+bool RestoreConfiguration(PvDevice *Device, PvStream *Stream, std::string mac_addr)
 {
   //configlogger->info("Resotring Device Configuration from: "+ SSTR(FILENAME));
   PvConfigurationReader Reader;
+  mac_addr += ".pvxml";  
   PvString mac, lString;
-  mac = (PvString)mac_addr;
+  mac = (PvString)mac_addr.c_str();
   Reader.Load( mac );
   Reader.Restore( DEVICE_CONFIGURATION_TAG, Device );
   Reader.Restore( STREAM_CONFIGURATION_TAG, Stream );

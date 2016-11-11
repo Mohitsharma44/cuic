@@ -44,7 +44,8 @@ LDFLAGS             += -L$(PUREGEV_ROOT)/lib         \
                         -lPvSerial		    \
 			-lpthread		    \
 			-pthread
-
+LDFLAGS		    += 	-L$(./) \
+			-lconfig.h \
 
 
 # Conditional linking and usage of the GUI on the sample only when available

@@ -38,7 +38,7 @@ Copyright (c) CUSP
 #include <PvBuffer.h>
 #include <PvBufferWriter.h>
 #include <PvConfigurationWriter.h>
-
+#include <PvConfigurationReader.h>
 #include "spdlog/spdlog.h"
 #include "config.h"
 
@@ -50,7 +50,7 @@ Copyright (c) CUSP
 #define DEVICE_CONFIGURATION_TAG ( "DeviceConfiguration" )
 #define STREAM_CONFIGURATION_TAG ( "StreamConfiguration" )
 #define STRING_INFORMATION_TAG ( "Copyright" )
-#define CUSP_COPYRIGHT ( "CUSP 2016" )
+#define COPYRIGHT ( "CUSP 2016" )
 #define IFNAME ("eth0")
 const int NUM_SECONDS = 10;
 
@@ -74,8 +74,8 @@ std::shared_ptr<spdlog::logger> initialize()
   auto stdout_sink = spdlog::sinks::stdout_sink_mt::instance();
   auto color_sink = std::make_shared<spdlog::sinks::ansicolor_sink>(stdout_sink);  
   sinks.push_back(color_sink);
-  sinks.push_back(std::make_shared<spdlog::sinks::daily_file_sink_st>("logs/cuicLogger", "log", 23, 59));
-  auto combined_logger = std::make_shared<spdlog::logger>("cuicLogger", sinks.begin(), sinks.end());
+  sinks.push_back(std::make_shared<spdlog::sinks::daily_file_sink_st>("logs/cuicCapture", "log", 23, 59));
+  auto combined_logger = std::make_shared<spdlog::logger>("cuicCapture", sinks.begin(), sinks.end());
   //register it to access globally
   spdlog::register_logger(combined_logger);
   // Force flush to file when encountered error
@@ -83,7 +83,7 @@ std::shared_ptr<spdlog::logger> initialize()
   return combined_logger;
 }
 
-std::string current_device;
+const char *current_device;
 std::shared_ptr<spdlog::logger> logger;
 
 // Struct to hold data/objects on/of every device
@@ -132,21 +132,22 @@ void *capture_image(void *device_data_arg)
   }
 */
 
-void *capture_image(void *device_data_arg)
+void *captureImage(void *device_data_arg)
   {
     struct device_data *devdata;
     devdata = (struct device_data *) device_data_arg;
     while ( !PvKbHit() )
       {
 	const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devdata->Devinfo );
-	logger->info("Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
 	current_device = DeviceInfoGEV->GetMACAddress().GetAscii();
+	RestoreConfiguration(devdata->Device, devdata->Stream, current_device);
+	sleep(0.5);
+	logger->info("Capturing from Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
 	AcquireImages( devdata->Device, devdata->Stream, devdata->Pipeline );
-	sleep(5);
+	sleep(6);
       }
     PvGetChar();
   }
-
 
 
 int main(int, char*[])
@@ -227,13 +228,13 @@ int main(int, char*[])
   
   for (int i=0; i<device_count; i++)
     {
-      pthread_create( &threads[i], NULL, capture_image, (void *)&devd[i] );
+      pthread_create( &threads[i], NULL, captureImage, (void *)&devd[i] );
       if (thread_retcode) 
 	{
 	  logger->error("Unable to create thread: " + SSTR(thread_retcode));
 	  exit(-1);
 	}
-      sleep(3);
+      sleep(1);
     }
 
   // Join Threads
@@ -498,7 +499,7 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      //ConfigWriter.Store( CUSP_COPYRIGHT, STRING_INFORMATION_TAG );
 	      // Write Metadata to the file
 	      //ConfigWriter.Save( meta_fname.c_str() );
-	      
+	      //sleep(2);
 	      
 	      // Get Image specific Buffer interface
 	      PvImage *Image = Buffer->GetImage();
@@ -537,10 +538,10 @@ void AcquireImages( PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
 	      // For TIFF, use PvBufferFormatTIFF
 	      // For BMP, use PvBufferFormatBMP
 	      // changing from co to timestamp
-	      logger->info("Image Captured: "+SSTR(timestamp));
-	      //fname = "/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/"+ current_device + "-" + SSTR( timestamp ) + ".raw";
-	      //BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
-	      
+	      logger->critical(current_device);
+	      fname = std::string("/mnt/ramdisk/") + current_device +  "-" + SSTR( timestamp ) + ".raw";
+	      BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
+	      logger->info("Image Captured: "+SSTR(fname));
 	      // Sleep before restarting
 	      //sleep(0.5);
 	      //delete &BuffWriter;

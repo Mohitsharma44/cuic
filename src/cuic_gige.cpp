@@ -42,7 +42,7 @@ Copyright (c) CUSP
 #include "spdlog/spdlog.h"
 #include "config.h"
 
-// For casting int to string
+// For casting to string
 #define SSTR( x ) static_cast< std::ostringstream & >(( std::ostringstream() << std::dec << x ) ).str()
 
 // Globals
@@ -51,7 +51,9 @@ Copyright (c) CUSP
 #define STREAM_CONFIGURATION_TAG ( "StreamConfiguration" )
 #define STRING_INFORMATION_TAG ( "Copyright" )
 #define COPYRIGHT ( "CUSP 2016" )
+#define BASEPATH ("/home/mohitsharma44/Pictures/")
 #define IFNAME ("eth0")
+#define EXPOSURE ( 500000 )
 const int NUM_SECONDS = 10;
 
 PV_INIT_SIGNAL_HANDLER();
@@ -111,6 +113,12 @@ struct device_data
   PvStream *Stream;
   // Store Pipelines
   PvPipeline *Pipeline;
+  // Store Communication-related settings
+  PvGenParameterArray *CommParameters;
+  // Store Device Settings
+  PvGenParameterArray *DeviceParameters;
+  // Store Stream Settings
+  PvGenParameterArray *StreamParameters;
 };
 
 /*
@@ -133,6 +141,15 @@ void *capture_image(void *device_data_arg)
   }
 */
 
+const char* toChar( double data )
+{
+  // Casting double to string
+  stringstream ss;
+  ss << data;
+  const char* str = ss.str().c_str();
+  return str;
+}
+
 void *captureImage(void *device_data_arg)
   {
     struct device_data *devdata;
@@ -142,9 +159,25 @@ void *captureImage(void *device_data_arg)
 	const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devdata->Devinfo );
 	//StoreConfiguration(devdata->Device, devdata->Stream, devdata->mac_addr);
 	//sleep(0.5);
+	PvString name;
+	PvGenType type;
+	PvPropertyList list;
+	double getValue;
+	PvConfigurationWriter writer;
+	
 	logger->info("Capturing from Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
-	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline );
-	sleep(59);
+	PvGenParameter *GenParameter = devdata->DeviceParameters->Get("ExposureTime");
+	GenParameter->GetName(name);
+	GenParameter->GetType(type);
+	static_cast<PvGenFloat *>(GenParameter)->SetValue(EXPOSURE);
+	static_cast<PvGenFloat *>(GenParameter)->GetValue(getValue);
+	logger->info("ExposureTime is: "+SSTR(getValue));
+
+	list.Add(PvProperty( (PvString)name, (PvString) toChar(getValue) ));
+	writer.Store(&list, (PvString)"My Params");
+	writer.Save(DeviceInfoGEV->GetDisplayID().GetAscii());
+	//AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline );
+	sleep(5);
       }
     PvGetChar();
   }
@@ -181,10 +214,12 @@ int main(int, char*[])
     {
       const PvInterface* Interface = System.GetInterface( interface_id );
       const PvDeviceInfo *DeviceInfo = Interface->GetDeviceInfo( i );
+      PvDeviceGEV DeviceGEV;
       //devd.devinfo.push_back(DeviceInfo);
       const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( DeviceInfo );
       devd[i].mac_addr = (PvString) DeviceInfoGEV->GetMACAddress().GetAscii();
       devd[i].Devinfo = DeviceInfo;
+      devd[i].CommParameters = DeviceGEV.GetCommunicationParameters();
 
       // Connect to cameras
       Device = PvDevice::CreateAndConnect( devd[i].Devinfo, &Result);
@@ -195,6 +230,7 @@ int main(int, char*[])
       logger->info(std::string("Connecting to Device: ") + DeviceInfo->GetDisplayID().GetAscii());
       //devd.vecDevices.push_back(Device);
       devd[i].Device = Device;
+      devd[i].DeviceParameters = Device->GetParameters();
       
       // Open the Streams from Cameras
       Stream = PvStream::CreateAndOpen( DeviceInfo->GetConnectionID(), &Result );
@@ -214,6 +250,7 @@ int main(int, char*[])
 	}
       //devd.vecStreams.push_back(Stream);
       devd[i].Stream = Stream;
+      devd[i].StreamParameters = Stream->GetParameters();
 
       // Create Pipeline for the stream
       PvPipeline *Pipeline = new PvPipeline( Stream );
@@ -226,6 +263,9 @@ int main(int, char*[])
 	  //devd.vecPipelines.push_back(Pipeline);
 	  devd[i].Pipeline = Pipeline;
 	}
+      // Load the configuration ONCE ONLY!
+      //logger->warn("Restoring Configuration for: "+SSTR(devd[i].mac_addr));
+      //RestoreConfiguration(devd[i].Device, devd[i].Stream, devd[i].mac_addr);
     }
   
   for (int i=0; i<device_count; i++)
@@ -538,8 +578,8 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 	       // For TIFF, use PvBufferFormatTIFF
 	       // For BMP, use PvBufferFormatBMP
 	       
-	       fname = "/mnt/ramdisk/" + mac_addr +  "-" + SSTR( timestamp ) + ".raw";
-	       
+	       fname = BASEPATH + mac_addr +  "-" + SSTR( timestamp ) + ".raw";
+	       BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
 	       logger->info("Image Captured: "+SSTR(fname));
 	       // Sleep before restarting
 	       sleep(1);

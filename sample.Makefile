@@ -38,16 +38,15 @@ LDFLAGS             += -L$(PUREGEV_ROOT)/lib         \
                         -lPvGenICam                  \
                         -lPvStream                   \
                         -lPvTransmitter              \
-                        -lPvVirtualDevice	         \
-		                -lPvAppUtils                 \
+                        -lPvVirtualDevice	     \
+		        -lPvAppUtils                 \
                         -lPvPersistence              \
-                        -lPvSerial		    \
-			-lpthread		    \
+                        -lPvSerial		     \
+			-lpthread		     \
 			-pthread
-LDFLAGS		    += 	-L$(./) \
-			-lconfig.h \
-
-
+LDFLAGS		    += 	-L$(./)                      \
+			-lconfig.h
+LDFLAGS		    +=  -lconfig++
 # Conditional linking and usage of the GUI on the sample only when available
 ifeq ($(wildcard $(PUREGEV_ROOT)/lib/libPvGUI.so),)
     CFLAGS    += -DPV_GUI_NOT_AVAILABLE

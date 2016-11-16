@@ -41,6 +41,11 @@ Copyright (c) CUSP
 #include <PvConfigurationReader.h>
 #include "spdlog/spdlog.h"
 #include "config.h"
+#include <libconfig.h++>
+#include <time.h>
+#include <ctime>
+
+using namespace libconfig;
 
 // For casting to string
 #define SSTR( x ) static_cast< std::ostringstream & >(( std::ostringstream() << std::dec << x ) ).str()
@@ -53,7 +58,6 @@ Copyright (c) CUSP
 #define COPYRIGHT ( "CUSP 2016" )
 #define BASEPATH ("/home/mohitsharma44/Pictures/")
 #define IFNAME ("eth0")
-#define EXPOSURE ( 500000 )
 const int NUM_SECONDS = 10;
 
 PV_INIT_SIGNAL_HANDLER();
@@ -87,7 +91,7 @@ std::shared_ptr<spdlog::logger> initialize()
 
 //const char *current_device;
 std::shared_ptr<spdlog::logger> logger;
-
+Config cfg;
 // Struct to hold data/objects on/of every device
 /*
 struct device_data
@@ -152,6 +156,7 @@ const char* toChar( double data )
 
 void *captureImage(void *device_data_arg)
   {
+    struct tm tm = {0};
     struct device_data *devdata;
     devdata = (struct device_data *) device_data_arg;
     while ( !PvKbHit() )
@@ -162,18 +167,63 @@ void *captureImage(void *device_data_arg)
 	PvString name;
 	PvGenType type;
 	PvPropertyList list;
-	double getValue;
+	double camera_exposure_value;
 	PvConfigurationWriter writer;
 	
 	logger->info("Capturing from Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
 	PvGenParameter *GenParameter = devdata->DeviceParameters->Get("ExposureTime");
 	GenParameter->GetName(name);
 	GenParameter->GetType(type);
-	static_cast<PvGenFloat *>(GenParameter)->SetValue(EXPOSURE);
-	static_cast<PvGenFloat *>(GenParameter)->GetValue(getValue);
-	logger->info("ExposureTime is: "+SSTR(getValue));
+	// Get Current Exposure value from camera
+	static_cast<PvGenFloat *>(GenParameter)->GetValue(camera_exposure_value);
+	// Get Current system time and convert to time_t
+	time_t now = time(0);
+	// Convert current time to EST tm struct
+	std::tm *local_tm = localtime(&now);
+	try
+	  {
+	    // Parse the exposure values and time from configuration file
+	    const Setting& root = cfg.getRoot();
+	    const Setting &exposures = root["exposure_times"];
+	    int exposure_count = exposures.getLength();
+	    //logger->info("Total exposures: "+SSTR(exposure_count));
+	    for (int i=0; i<exposure_count; i++)
+	      {
+		const Setting &exposure = exposures[i];
+		int exp_val;
+		std::string time_;
+		
+		exposure.lookupValue("time", time_);
+		exposure.lookupValue("exposure", exp_val);
+		
+		const char *time_details = time_.c_str();
+		strptime(time_details, "%H:%M:%S", &tm);
+		//tm  = *localtime(tm);
+		tm.tm_mday = local_tm->tm_mday;
+		tm.tm_mon = local_tm->tm_mon;
+		tm.tm_year = local_tm->tm_year;
+		time_t next_t = mktime(&tm);
+		// Check if current time is within 15 minutes of the time in configuration file
+		if (std::difftime(now, next_t) > 0 && std::difftime(now, next_t) <= 900)
+		  {
+		    // If current camera exposure is different than configuration file:
+		    if (camera_exposure_value != exp_val)
+		      {
+			logger->warn("Will Set exposure to: "+SSTR(exp_val));
+			static_cast<PvGenFloat *>(GenParameter)->SetValue(exp_val);
+		      }
+		    break;
+		  }
+	      }
+	  }
+	catch(const SettingNotFoundException &nfex)
+	  {
+	    logger->error("Error in getting Settings from Configuration file");
+	  }
+	static_cast<PvGenFloat *>(GenParameter)->GetValue(camera_exposure_value);
+	logger->info("ExposureTime is: "+SSTR(camera_exposure_value));
 
-	list.Add(PvProperty( (PvString)name, (PvString) toChar(getValue) ));
+	list.Add(PvProperty( (PvString)name, (PvString) toChar(camera_exposure_value) ));
 	writer.Store(&list, (PvString)"My Params");
 	writer.Save(DeviceInfoGEV->GetDisplayID().GetAscii());
 	//AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline );
@@ -187,6 +237,22 @@ int main(int, char*[])
 {
   logger = initialize();
   spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%n] [%l] [thread %t] - %v");
+
+  // Parse Configuration File
+  try
+    {
+      cfg.readFile("./configuration.cfg");
+    }
+  catch(const ParseException &pex)
+    {
+      logger->error("Parse Error at: " + SSTR(pex.getFile()) + " : " + SSTR(pex.getLine()) + " - " + SSTR(pex.getError()));
+      return(EXIT_FAILURE);
+    }
+  
+  std::string name = cfg.lookup("name");
+  logger->info("Config Name: "+SSTR(name));
+  
+  
   std::pair<int, int> inter;
   int interface_id, device_count;
   const PvDeviceInfo *DeviceInfo = NULL;

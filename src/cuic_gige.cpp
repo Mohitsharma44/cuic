@@ -204,7 +204,7 @@ void *captureImage(void *device_data_arg)
 		tm.tm_year = local_tm->tm_year;
 		time_t next_t = mktime(&tm);
 		// Check if current time is within 15 minutes of the time in configuration file
-		if (std::difftime(now, next_t) > 0 && std::difftime(now, next_t) <= 900)
+		if (std::fabs(std::difftime(now, next_t)) > 0 && std::fabs(std::difftime(now, next_t)) <= 900)
 		  {
 		    // If current camera exposure is different than configuration file:
 		    if (camera_exposure_value != exp_val)

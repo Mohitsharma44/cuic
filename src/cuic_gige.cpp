@@ -195,16 +195,17 @@ void *captureImage(void *device_data_arg)
 		
 		exposure.lookupValue("time", time_);
 		exposure.lookupValue("exposure", exp_val);
-		
+		// Parse time from config file to time_t
 		const char *time_details = time_.c_str();
 		strptime(time_details, "%H:%M:%S", &tm);
-		//tm  = *localtime(tm);
-		tm.tm_mday = local_tm->tm_mday;
-		tm.tm_mon = local_tm->tm_mon;
-		tm.tm_year = local_tm->tm_year;
 		time_t next_t = mktime(&tm);
-		// Check if current time is within 15 minutes of the time in configuration file
-		if (std::fabs(std::difftime(now, next_t)) > 0 && std::fabs(std::difftime(now, next_t)) <= 900)
+		// create new time with only H:M:S from locatime
+		local_tm->tm_mday = tm.tm_mday;
+		local_tm->tm_mon = tm.tm_mon;
+		local_tm->tm_year = tm.tm_year;
+		time_t compare_t = mktime(local_tm);
+		// Check if current time is within 15 minutes of the time in configuration file		
+		if (std::fabs(std::difftime(compare_t, next_t)) <= 900)
 		  {
 		    // If current camera exposure is different than configuration file:
 		    if (camera_exposure_value != exp_val)

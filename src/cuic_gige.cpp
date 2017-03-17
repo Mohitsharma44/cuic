@@ -56,7 +56,7 @@ using namespace libconfig;
 #define STREAM_CONFIGURATION_TAG ( "StreamConfiguration" )
 #define STRING_INFORMATION_TAG ( "Copyright" )
 #define COPYRIGHT ( "CUSP 2016" )
-#define BASEPATH ("/home/mohitsharma44/Pictures/")
+#define BASEPATH ("/mnt/ramdisk")
 #define IFNAME ("eth0")
 const int NUM_SECONDS = 10;
 
@@ -200,10 +200,12 @@ void *captureImage(void *device_data_arg)
 		strptime(time_details, "%H:%M:%S", &tm);
 		time_t next_t = mktime(&tm);
 		// create new time with only H:M:S from locatime
-		local_tm->tm_mday = tm.tm_mday;
-		local_tm->tm_mon = tm.tm_mon;
-		local_tm->tm_year = tm.tm_year;
+		local_tm->tm_mday = tm.tm_mday = 0;
+		local_tm->tm_mon = tm.tm_mon = 0;
+		local_tm->tm_year = tm.tm_year = 0;
 		time_t compare_t = mktime(local_tm);
+		//cout << (std::fabs(std::difftime(compare_t, next_t))) << endl;		
+		//cout << compare_t << " ---- " << next_t << " ---- " << (std::fabs(std::difftime(compare_t, next_t))) << endl;
 		// Check if current time is within 15 minutes of the time in configuration file		
 		if (std::fabs(std::difftime(compare_t, next_t)) <= 900)
 		  {
@@ -213,7 +215,6 @@ void *captureImage(void *device_data_arg)
 			logger->warn("Will Set exposure to: "+SSTR(exp_val));
 			static_cast<PvGenFloat *>(GenParameter)->SetValue(exp_val);
 		      }
-		    break;
 		  }
 	      }
 	  }
@@ -227,7 +228,7 @@ void *captureImage(void *device_data_arg)
 	list.Add(PvProperty( (PvString)name, (PvString) toChar(camera_exposure_value) ));
 	writer.Store(&list, (PvString)"My Params");
 	writer.Save(DeviceInfoGEV->GetDisplayID().GetAscii());
-	//AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline );
+	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline );
 	sleep(5);
       }
     PvGetChar();

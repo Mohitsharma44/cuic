@@ -20,6 +20,7 @@ Copyright (c) CUSP
 #define PV_GUI_NOT_AVAILABLE
 
 #include <sstream>
+#include <stdlib.h>
 #include <unistd.h>
 #include <iostream>
 #include <memory>
@@ -51,13 +52,23 @@ using namespace libconfig;
 #define SSTR( x ) static_cast< std::ostringstream & >(( std::ostringstream() << std::dec << x ) ).str()
 
 // Globals
+// -- Device settings
 #define BUFFER_COUNT ( 16 )
+// -- Local Configuration 
 #define DEVICE_CONFIGURATION_TAG ( "DeviceConfiguration" )
 #define STREAM_CONFIGURATION_TAG ( "StreamConfiguration" )
 #define STRING_INFORMATION_TAG ( "Copyright" )
 #define COPYRIGHT ( "CUSP 2016" )
-#define BASEPATH ("/mnt/ramdisk")
+#define BASEPATH ("/mnt/ramdisk/")
 #define IFNAME ("eth0")
+// -- Image configuration
+#define WHITE_BALANCE_AUTO ("Off")
+#define HDR_ENABLE (0)
+#define GAIN (1)
+#define EXPOSURE (200000)
+
+
+
 const int NUM_SECONDS = 10;
 
 PV_INIT_SIGNAL_HANDLER();
@@ -70,7 +81,7 @@ PvDevice *ConnectToDevice(PvResult *Result, const PvDeviceInfo *DeviceInfo);
 PvStream *OpenStream( const PvDeviceInfo *DeviceInfo );
 void ConfigureStream( PvDevice *Device, PvStream *Stream);
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream);
-void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *pipeline);
+void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *pipeline, time_t timestamp);
 // -- 
 
 std::shared_ptr<spdlog::logger> initialize()
@@ -80,7 +91,7 @@ std::shared_ptr<spdlog::logger> initialize()
   auto stdout_sink = spdlog::sinks::stdout_sink_mt::instance();
   auto color_sink = std::make_shared<spdlog::sinks::ansicolor_sink>(stdout_sink);  
   sinks.push_back(color_sink);
-  sinks.push_back(std::make_shared<spdlog::sinks::daily_file_sink_st>("logs/cuicCapture", "log", 23, 59));
+  sinks.push_back(std::make_shared<spdlog::sinks::daily_file_sink_st>("/var/log/cuic/cuicCapture", "log", 23, 59));
   auto combined_logger = std::make_shared<spdlog::logger>("cuicCapture", sinks.begin(), sinks.end());
   //register it to access globally
   spdlog::register_logger(combined_logger);
@@ -164,22 +175,62 @@ void *captureImage(void *device_data_arg)
 	const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devdata->Devinfo );
 	//StoreConfiguration(devdata->Device, devdata->Stream, devdata->mac_addr);
 	//sleep(0.5);
-	PvString name;
-	PvGenType type;
 	PvPropertyList list;
 	double camera_exposure_value;
-	PvConfigurationWriter writer;
-	
+	PvString exp_name, gain_name, hdr_name, wbal_name, lut_name;
+	PvString balautowhite, hdren, luten, gain;
+	PvConfigurationWriter configwriter;
+	std::string config_fname;
 	logger->info("Capturing from Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
-	PvGenParameter *GenParameter = devdata->DeviceParameters->Get("ExposureTime");
-	GenParameter->GetName(name);
-	GenParameter->GetType(type);
-	// Get Current Exposure value from camera
-	static_cast<PvGenFloat *>(GenParameter)->GetValue(camera_exposure_value);
+	PvGenParameter *ExpParameter  = devdata->DeviceParameters->Get("ExposureTime");
+	PvGenParameter *GainParameter = devdata->DeviceParameters->GetFloat("Gain");
+	PvGenParameter *WBalParameter = devdata->DeviceParameters->GetEnum("BalanceWhiteAuto");
+	PvGenParameter *HDRParameter  = devdata->DeviceParameters->GetBoolean("HDREnable");
+	PvGenParameter *LUTParameter  = devdata->DeviceParameters->GetBoolean("LUTEnable");
+
+	// Get Current Setting values from camera
+	static_cast<PvGenFloat *>(ExpParameter)->GetValue(camera_exposure_value);
+	ExpParameter->GetName(exp_name);
+	//static_cast<PvGenFloat *>(ExpParameter)->SetValue(EXPOSURE);
+
+	gain = GainParameter->ToString();
+	GainParameter->GetName(gain_name);
+
+	balautowhite = WBalParameter->ToString();
+	WBalParameter->GetName(wbal_name);
+
+	hdren = HDRParameter->ToString();
+	HDRParameter->GetName(hdr_name);
+
+	luten = LUTParameter->ToString();
+	LUTParameter->GetName(lut_name);
+
+	// add the values to configuration file
+	list.Add(PvProperty( gain_name, gain ));
+	list.Add(PvProperty( wbal_name, balautowhite ));
+	list.Add(PvProperty( hdr_name, hdren ));
+	list.Add(PvProperty( lut_name, luten ));
+	
+	logger->info("ExposureTime is: "+SSTR(camera_exposure_value));
+	/**
+	// log to info
+	logger->info("Balance Auto White: "+SSTR(balautowhite.GetAscii()));
+	logger->info("HDRENABLE: "+SSTR(hdren.GetAscii()));
+	logger->info("LUTEnable: "+SSTR(luten.GetAscii()));
+	logger->info("Gain: "+SSTR(gain.GetAscii()));
+
+	// Set Values
+	logger->info("setting gain");
+	static_cast<PvGenFloat *>(GainParameter)->SetValue(GAIN);
+	logger->info("disable hdr");
+	static_cast<PvGenBoolean *>(HDRParameter)->SetValue(HDR_ENABLE);	
+	**/
+
 	// Get Current system time and convert to time_t
 	time_t now = time(0);
 	// Convert current time to EST tm struct
 	std::tm *local_tm = localtime(&now);
+	/**
 	try
 	  {
 	    // Parse the exposure values and time from configuration file
@@ -213,7 +264,7 @@ void *captureImage(void *device_data_arg)
 		    if (camera_exposure_value != exp_val)
 		      {
 			logger->warn("Will Set exposure to: "+SSTR(exp_val));
-			static_cast<PvGenFloat *>(GenParameter)->SetValue(exp_val);
+			static_cast<PvGenFloat *>(ExpParameter)->SetValue(exp_val);
 		      }
 		  }
 	      }
@@ -222,13 +273,15 @@ void *captureImage(void *device_data_arg)
 	  {
 	    logger->error("Error in getting Settings from Configuration file");
 	  }
-	static_cast<PvGenFloat *>(GenParameter)->GetValue(camera_exposure_value);
+	static_cast<PvGenFloat *>(ExpParameter)->GetValue(camera_exposure_value);
 	logger->info("ExposureTime is: "+SSTR(camera_exposure_value));
-
-	list.Add(PvProperty( (PvString)name, (PvString) toChar(camera_exposure_value) ));
-	writer.Store(&list, (PvString)"My Params");
-	writer.Save(DeviceInfoGEV->GetDisplayID().GetAscii());
-	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline );
+	**/
+	list.Add(PvProperty( (PvString)exp_name, (PvString) toChar(camera_exposure_value) ));
+	configwriter.Store(&list, (PvString)"My Params");
+	std::time_t timestamp = std::time(nullptr);
+	config_fname = BASEPATH + devdata->mac_addr +  "-" + SSTR( timestamp ) + ".hdr";
+	configwriter.Save( config_fname.c_str() );
+	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline, timestamp );
 	sleep(5);
       }
     PvGetChar();
@@ -239,11 +292,12 @@ int main(int, char*[])
 {
   logger = initialize();
   spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%n] [%l] [thread %t] - %v");
-
+  logger->info("Starting Up...");
+  sleep (5);
   // Parse Configuration File
   try
     {
-      cfg.readFile("./configuration.cfg");
+      cfg.readFile("/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/configuration.cfg");
     }
   catch(const ParseException &pex)
     {
@@ -526,7 +580,7 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 }
 
 
- void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline )
+void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline, time_t timestamp )
 {
    // Get Device Parameters to control streaming
    PvGenParameterArray *DeviceParams = Device->GetParameters();
@@ -565,6 +619,8 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
    PvBuffer *Buffer = NULL;
    PvResult OperationalResult;
    // Retrieve next buffer
+   // sleep if exposure is high
+   sleep(2);
    PvResult Result = Pipeline->RetrieveNextBuffer( &Buffer, 1000, &OperationalResult );
    if ( Result.IsOK() )
      {
@@ -590,11 +646,12 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 	   
 	   if ( Type == PvPayloadTypeImage)
 	     {
+	       
 	       // Parameters for storing metadata
 	       PvConfigurationWriter ConfigWriter;
 	       
 	       //uint64_t timestamp = Buffer->GetReceptionTime();
-	       std::time_t timestamp = std::time(nullptr);
+	       //std::time_t timestamp = std::time(nullptr);
 	       //cout << "Timestamp: " << timestamp << endl;
 	       //meta_fname = SSTR( timestamp ) + ".hdr";
 	       
@@ -619,7 +676,6 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 	       //cout << "Saving Image ... ";
 	      
 	       // Tell device to Stop sending Images
-	       //cout << "Sending Acquisition Stop Command " << endl;
 	       Stop->Execute();
 	       // Disable Streaming                                                               
 	       //cout << "Disabling Streaming " << endl;
@@ -645,12 +701,11 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 	       // For RAW, use PvBufferFormatRaw
 	       // For TIFF, use PvBufferFormatTIFF
 	       // For BMP, use PvBufferFormatBMP
-	       
 	       fname = BASEPATH + mac_addr +  "-" + SSTR( timestamp ) + ".raw";
 	       BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
 	       logger->info("Image Captured: "+SSTR(fname));
 	       // Sleep before restarting
-	       sleep(1);
+	       //sleep(2);
 	       //delete &BuffWriter;
 	       //delete &Image;
 	       //delete &ConfigWriter;
@@ -674,19 +729,20 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 	   // Operational Result is non OK
 	   logger->error("Operational result is non OK: "+std::string(OperationalResult.GetCodeString().GetAscii()));
 	   //cout << Doodle[ DoodleIndex ] << " " << OperationalResult.GetCodeString().GetAscii() << "\r";
+	   quick_exit (EXIT_SUCCESS);
 	 }
        
        // Release buffer back to pipeline
        logger->debug("Releasing buffer back to pipeline");
        Pipeline->ReleaseBuffer( Buffer );
      }
-   /*
      else
      {
      //Retrieve Buffer failure
-     cout << Doodle[ DoodleIndex ] << " " << Result.GetCodeString().GetAscii() << "\r";
+     //cout << Doodle[ DoodleIndex ] << " " << Result.GetCodeString().GetAscii() << "\r";
+       logger->error("Error retrieving the Buffer");
+       quick_exit (EXIT_SUCCESS);
      }
-   */
    //}
    logger->debug("Stopping");
    //PvGetChar(); // Flush Keybuffer for next stop

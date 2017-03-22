@@ -5,7 +5,7 @@
 #define STREAM_CONFIGURATION_TAG ( "StreamConfiguration" )
 #define STRING_INFORMATION_TAG ( "StringInformation" )
 #define COPYRIGHT ( "This is a test string" )
-#define FILENAME ( "cusp_cam.pvxml" )
+#define BASEPATH ( "/opt/pleora/ebus_sdk/Ubuntu-14.04-x86_64/share/samples/cuic/src/" )
 
 #define SSTR( x ) static_cast< std::ostringstream & >(( std::ostringstream() << std::dec << x ) ).str()
 /*
@@ -44,12 +44,16 @@ bool StoreConfiguration(PvDevice *Device, PvStream *Stream, std::string mac_addr
 
 bool RestoreConfiguration(PvDevice *Device, PvStream *Stream, std::string mac_addr)
 {
+  std::string fname;
+  PvString config_file;
   //configlogger->info("Resotring Device Configuration from: "+ SSTR(FILENAME));
   PvConfigurationReader Reader;
-  mac_addr += ".pvxml";  
+  fname = BASEPATH + mac_addr;
+  fname += ".pvxml";
+  cout << mac_addr << endl;
   PvString mac, lString;
-  mac = (PvString)mac_addr.c_str();
-  Reader.Load( mac );
+  config_file = (PvString)fname.c_str();
+  Reader.Load( config_file );
   Reader.Restore( DEVICE_CONFIGURATION_TAG, Device );
   Reader.Restore( STREAM_CONFIGURATION_TAG, Stream );
   Reader.Restore( STRING_INFORMATION_TAG, lString );

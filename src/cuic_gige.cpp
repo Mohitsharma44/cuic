@@ -65,7 +65,7 @@ using namespace libconfig;
 #define WHITE_BALANCE_AUTO ("Off")
 #define HDR_ENABLE (0)
 #define GAIN (1)
-#define EXPOSURE (200000)
+#define EXPOSURE (1000000)
 
 
 
@@ -191,7 +191,7 @@ void *captureImage(void *device_data_arg)
 	// Get Current Setting values from camera
 	static_cast<PvGenFloat *>(ExpParameter)->GetValue(camera_exposure_value);
 	ExpParameter->GetName(exp_name);
-	//static_cast<PvGenFloat *>(ExpParameter)->SetValue(EXPOSURE);
+	static_cast<PvGenFloat *>(ExpParameter)->SetValue(EXPOSURE);
 
 	gain = GainParameter->ToString();
 	GainParameter->GetName(gain_name);
@@ -282,7 +282,7 @@ void *captureImage(void *device_data_arg)
 	config_fname = BASEPATH + devdata->mac_addr +  "-" + SSTR( timestamp ) + ".hdr";
 	configwriter.Save( config_fname.c_str() );
 	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline, timestamp );
-	sleep(5);
+	sleep(8);
       }
     PvGetChar();
   }
@@ -729,7 +729,7 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
 	   // Operational Result is non OK
 	   logger->error("Operational result is non OK: "+std::string(OperationalResult.GetCodeString().GetAscii()));
 	   //cout << Doodle[ DoodleIndex ] << " " << OperationalResult.GetCodeString().GetAscii() << "\r";
-	   quick_exit (EXIT_SUCCESS);
+	   //quick_exit (EXIT_SUCCESS);
 	 }
        
        // Release buffer back to pipeline
@@ -741,7 +741,7 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
      //Retrieve Buffer failure
      //cout << Doodle[ DoodleIndex ] << " " << Result.GetCodeString().GetAscii() << "\r";
        logger->error("Error retrieving the Buffer");
-       quick_exit (EXIT_SUCCESS);
+       //quick_exit (EXIT_SUCCESS);
      }
    //}
    logger->debug("Stopping");

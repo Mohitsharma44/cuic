@@ -26,6 +26,7 @@ Copyright (c) CUSP
 #include <memory>
 #include <ctime>
 #include <pthread.h>
+#include <mutex>
 #include <PvSampleUtils.h>
 #include <PvSystem.h>
 #include <PvInterface.h>
@@ -65,9 +66,9 @@ using namespace libconfig;
 #define WHITE_BALANCE_AUTO ("Off")
 #define HDR_ENABLE (0)
 #define GAIN (1)
-#define EXPOSURE (1000000)
+#define EXPOSURE (200000)
 
-
+std::mutex camlock;
 
 const int NUM_SECONDS = 10;
 
@@ -181,7 +182,7 @@ void *captureImage(void *device_data_arg)
 	PvString balautowhite, hdren, luten, gain;
 	PvConfigurationWriter configwriter;
 	std::string config_fname;
-	logger->info("Capturing from Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
+	//logger->info("Capturing from Device: "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
 	PvGenParameter *ExpParameter  = devdata->DeviceParameters->Get("ExposureTime");
 	PvGenParameter *GainParameter = devdata->DeviceParameters->GetFloat("Gain");
 	PvGenParameter *WBalParameter = devdata->DeviceParameters->GetEnum("BalanceWhiteAuto");
@@ -211,7 +212,7 @@ void *captureImage(void *device_data_arg)
 	list.Add(PvProperty( hdr_name, hdren ));
 	list.Add(PvProperty( lut_name, luten ));
 	
-	logger->info("ExposureTime is: "+SSTR(camera_exposure_value));
+	//logger->info("ExposureTime is: "+SSTR(camera_exposure_value));
 	/**
 	// log to info
 	logger->info("Balance Auto White: "+SSTR(balautowhite.GetAscii()));
@@ -398,7 +399,7 @@ int main(int, char*[])
 	  logger->error("Unable to create thread: " + SSTR(thread_retcode));
 	  exit(-1);
 	}
-      sleep(2);
+      sleep(0.1);
     }
 
   // Join Threads
@@ -582,6 +583,7 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 
 void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline, time_t timestamp )
 {
+   camlock.lock();
    // Get Device Parameters to control streaming
    PvGenParameterArray *DeviceParams = Device->GetParameters();
    
@@ -758,4 +760,5 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
    // Stop Pipeline
    logger->debug("Stopping Pipeline");
    Pipeline->Stop();
+   camlock.unlock();
  }

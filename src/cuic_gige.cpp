@@ -399,7 +399,7 @@ int main(int, char*[])
 	  logger->error("Unable to create thread: " + SSTR(thread_retcode));
 	  exit(-1);
 	}
-      sleep(0.1);
+      sleep(1);
     }
 
   // Join Threads

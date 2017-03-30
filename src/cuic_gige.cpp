@@ -21,6 +21,7 @@ Copyright (c) CUSP
 
 #include <sstream>
 #include <stdlib.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <iostream>
 #include <memory>
@@ -82,7 +83,7 @@ PvDevice *ConnectToDevice(PvResult *Result, const PvDeviceInfo *DeviceInfo);
 PvStream *OpenStream( const PvDeviceInfo *DeviceInfo );
 void ConfigureStream( PvDevice *Device, PvStream *Stream);
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream);
-void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *pipeline, time_t timestamp);
+void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *pipeline, time_t timestamp, int64_t cntr);
 // -- 
 
 std::shared_ptr<spdlog::logger> initialize()
@@ -135,6 +136,8 @@ struct device_data
   PvGenParameterArray *DeviceParameters;
   // Store Stream Settings
   PvGenParameterArray *StreamParameters;
+  // image counter
+  int64_t img_cntr = 0;
 };
 
 /*
@@ -280,10 +283,12 @@ void *captureImage(void *device_data_arg)
 	list.Add(PvProperty( (PvString)exp_name, (PvString) toChar(camera_exposure_value) ));
 	configwriter.Store(&list, (PvString)"My Params");
 	std::time_t timestamp = std::time(nullptr);
-	config_fname = BASEPATH + devdata->mac_addr +  "-" + SSTR( timestamp ) + ".hdr";
+	config_fname = BASEPATH + SSTR(devdata->img_cntr) + "_" + devdata->mac_addr.substr(devdata->mac_addr.length()-2) +  "-" + SSTR( timestamp ) + ".hdr";
 	configwriter.Save( config_fname.c_str() );
-	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline, timestamp );
-	sleep(8);
+	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline, timestamp, devdata->img_cntr );
+	sleep(9);
+	// increment total image counter for particular camera
+	devdata->img_cntr++;
       }
     PvGetChar();
   }
@@ -581,9 +586,10 @@ PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 }
 
 
-void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline, time_t timestamp )
+void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *Pipeline, time_t timestamp, int64_t cntr )
 {
    camlock.lock();
+   
    // Get Device Parameters to control streaming
    PvGenParameterArray *DeviceParams = Device->GetParameters();
    
@@ -622,7 +628,7 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
    PvResult OperationalResult;
    // Retrieve next buffer
    // sleep if exposure is high
-   sleep(2);
+   //sleep(2);
    PvResult Result = Pipeline->RetrieveNextBuffer( &Buffer, 1000, &OperationalResult );
    if ( Result.IsOK() )
      {
@@ -703,7 +709,7 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
 	       // For RAW, use PvBufferFormatRaw
 	       // For TIFF, use PvBufferFormatTIFF
 	       // For BMP, use PvBufferFormatBMP
-	       fname = BASEPATH + mac_addr +  "-" + SSTR( timestamp ) + ".raw";
+	       fname = BASEPATH + SSTR(cntr) + "_" + mac_addr.substr(mac_addr.length()-2) +  "_" + SSTR( timestamp ) + ".raw";
 	       BuffWriter.Store( Buffer, fname.c_str(), PvBufferFormatRaw );
 	       logger->info("Image Captured: "+SSTR(fname));
 	       // Sleep before restarting

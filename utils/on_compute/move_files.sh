@@ -6,7 +6,7 @@ START_TIME="14:00"
 END_TIME="20:00"
 
 SOURCE=${AUDUBON_DATA}"/audubon_imgs_live/"
-DESTINATION=${AUDUBON_DATA}/$YEST_DATE"_night_test"
+DESTINATION=${AUDUBON_DATA}/$YEST_DATE"_night"
 
 echo "Finding *.raw and *.hdr for $DESTINATION"
 mkdir -p $DESTINATION

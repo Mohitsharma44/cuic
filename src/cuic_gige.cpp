@@ -81,7 +81,6 @@ std::pair<int, int> findInterface();
 //PvDevice *ConnectToDevice(const PvDeviceInfo *DeviceInfo);
 PvDevice *ConnectToDevice(PvResult *Result, const PvDeviceInfo *DeviceInfo);
 PvStream *OpenStream( const PvDeviceInfo *DeviceInfo );
-void ConfigureStream( PvDevice *Device, PvStream *Stream);
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream);
 void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, PvPipeline *pipeline, time_t timestamp, int64_t cntr);
 // -- 
@@ -286,11 +285,18 @@ void *captureImage(void *device_data_arg)
 	config_fname = BASEPATH + SSTR(devdata->img_cntr) + "_" + devdata->mac_addr.substr(devdata->mac_addr.length()-2) +  "-" + SSTR( timestamp ) + ".hdr";
 	configwriter.Save( config_fname.c_str() );
 	AcquireImages( devdata->mac_addr, devdata->Device, devdata->Stream, devdata->Pipeline, timestamp, devdata->img_cntr );
-	sleep(9);
+	sleep(8);
 	// increment total image counter for particular camera
 	devdata->img_cntr++;
       }
     PvGetChar();
+    logger->info("Releasing: "+devdata->mac_addr);
+    //cout << "Releasing: " << devdata->mac_addr <<endl;
+    delete devdata->Pipeline;
+    devdata->Stream->Close();
+    PvStream::Free( devdata->Stream );
+    devdata->Device->Disconnect();
+    PvDevice::Free( devdata->Device );
   }
 
 
@@ -404,7 +410,7 @@ int main(int, char*[])
 	  logger->error("Unable to create thread: " + SSTR(thread_retcode));
 	  exit(-1);
 	}
-      sleep(1);
+      sleep(3);
     }
 
   // Join Threads
@@ -412,75 +418,6 @@ int main(int, char*[])
     {
       pthread_join( threads[i], NULL );
     }
-
-  /*
-  while ( !PvKbHit() )
-    {
-      for(unsigned int devi = 0; devi < devd.devinfo.size(); ++devi) 
-	{
-	  const PvDeviceInfoGEV* DeviceInfoGEV = dynamic_cast<const PvDeviceInfoGEV*>( devd.devinfo[devi] );
-	  logger->info("Device "+SSTR(devi)+" : "+SSTR(DeviceInfoGEV->GetDisplayID().GetAscii()) );
-	  current_device = DeviceInfoGEV->GetMACAddress().GetAscii();
-	  AcquireImages( devd.vecDevices[devi], devd.vecStreams[devi], devd.vecPipelines[devi] );
-	  sleep(2);
-	}
-      sleep(5);
-    }
-  PvGetChar();
-  */
-
-  // Shutdown everything
-  /*
-  for (unsigned int devi = 0; devi < devinfo.size(); ++devi)
-    {
-      delete vecPipelines[devi];
-      vecStreams[devi]->Close();
-      PvStream::Free( Stream );
-      logger->debug("Disconnecting the Device ");
-      vecDevices[devi]->Disconnect();
-      PvDevice::Free( Device );
-    }
-  */
-  /*
-  // Connect to all devices found on particular interface
-  while ( !PvKbHit() )
-    {
-      for (int i=0; i<device_count; i++)
-	{
-	  DeviceInfo = SelectDevice( &Result, interface_id, i );
-	  
-	  if ( DeviceInfo != NULL )
-	    {
-	      Device = ConnectToDevice( DeviceInfo );
-	      if ( Device != NULL )
-		{
-		  Stream = OpenStream( DeviceInfo );
-		  if ( Stream != NULL )
-		    {
-		      ConfigureStream( Device, Stream );
-		      Pipeline = CreatePipeline( Device, Stream);
-		      if ( Pipeline )
-			{
-			  AcquireImages( Device, Stream, Pipeline );
-			  delete Pipeline;
-			}
-		      // Close Stream
-		      logger->info("Closing Stream");
-		      Stream->Close();
-		      PvStream::Free( Stream );
-		    }
-		  // Disconnect the Device
-		  logger->info("Disconnecting the Device ");
-		  Device->Disconnect();
-		  PvDevice::Free( Device );	  
-		}
-	 
-		}
-	  
-	}
-    }
-  PvGetChar();
-  */
   PV_SAMPLE_TERMINATE();
   
   return 0;
@@ -554,27 +491,10 @@ PvStream *OpenStream( const PvDeviceInfo *DeviceInfo )
   return Stream;
 }
 
-void ConfigureStream( PvDevice *Device, PvStream *Stream)
-{
-  // Configuration is only for GigE devices
-  PvDeviceGEV* GEVDevice = dynamic_cast<PvDeviceGEV *>( Device );
-  if ( GEVDevice != NULL)
-    {
-      PvStreamGEV* GEVStream = dynamic_cast<PvStreamGEV *>( Stream );
-      // Negotiate Packet size
-      GEVDevice->NegotiatePacketSize();
-      // Configure device streaming destination
-      GEVDevice->SetStreamDestination( GEVStream->GetLocalIPAddress(), GEVStream->GetLocalPort());
-      
-    }
-}
-
-
 PvPipeline *CreatePipeline( PvDevice *Device, PvStream *Stream )
 {
   // Create Pipeline for streaming data
   PvPipeline *Pipeline = new PvPipeline( Stream );
-  
   if (Pipeline != NULL)
     {
       uint32_t payload_size = Device->GetPayloadSize();
@@ -628,7 +548,7 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
    PvResult OperationalResult;
    // Retrieve next buffer
    // sleep if exposure is high
-   //sleep(2);
+   sleep(2);
    PvResult Result = Pipeline->RetrieveNextBuffer( &Buffer, 1000, &OperationalResult );
    if ( Result.IsOK() )
      {
@@ -681,10 +601,10 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
 	       Height = Image->GetHeight();
 	       logger->debug("Image Width: "+SSTR( Width ) + "Image Height: "+ SSTR( Height ));
 	       //cout << " W: " << dec << Width << "H: " << Height;
-	       //cout << "Saving Image ... ";
+	       cout << "Saving Image ... ";
 	      
 	       // Tell device to Stop sending Images
-	       Stop->Execute();
+	       //Stop->Execute();
 	       // Disable Streaming                                                               
 	       //cout << "Disabling Streaming " << endl;
 	       //Device->StreamDisable();
@@ -754,7 +674,7 @@ void AcquireImages( std::string mac_addr, PvDevice *Device, PvStream *Stream, Pv
    //}
    logger->debug("Stopping");
    //PvGetChar(); // Flush Keybuffer for next stop
-   
+
    // Tell device to Stop sending Images
    logger->debug("Sending Acquisition Stop Command");
    Stop->Execute();

@@ -119,9 +119,10 @@ void * ImageDisplayThread( void *context)
           // Wait for images to be received
           //status = GevWaitForNextImage(displayContext->camHandle, &img, 1000);
           status = GevWaitForNextImage(displayContext->camHandle, &img, 1000);
-          printf("MSS: WaitForNextImage Status: %d\n", status);
+          //printf("MSS: WaitForNextImage Status: %d\n", status);
           if ((img != NULL) && (status == GEVLIB_OK))
             {
+              printf("MSS: CURRENT TIME: %lu\n", ms_timer_init());
               printf("MSS: Image Status: %d\n", img->status);
               printf("MSS: Buffer State: %d\n", img->recv_size);
               printf("MSS: Buffer ID: %d\n", img->id);
@@ -130,8 +131,9 @@ void * ImageDisplayThread( void *context)
               printf("MSS: Buffer Depth: %d\n", img->d);
               printf("MSS: Buffer Format: 0x%08x\n", img->format);
               imgaddr = img->address;
+              const char* filename = "test-%lu.bin", ms_timer_init();
               std::ofstream ot;
-              ot.open("test.bin" , std::ios::out|std::ios::binary);
+              ot.open(filename , std::ios::out|std::ios::binary);
               ot.write((const char *)imgaddr, img->recv_size);
               ot.flush();
               ot.close();
@@ -287,6 +289,7 @@ int main(int argc, char* argv[])
           UINT32 pixFormat = 0;
           UINT32 pixDepth = 0;
           UINT32 pixelOrder = 0;
+          float exposure = 0;
 
           //====================================================================
           // Open the camera.
@@ -358,6 +361,15 @@ int main(int argc, char* argv[])
                       height = (UINT32) ptrIntNode->GetValue();
                       GenApi::CEnumerationPtr ptrEnumNode = Camera->_GetNode("PixelFormat") ;
                       format = (UINT32)ptrEnumNode->GetIntValue();
+                      // Get ExposureTime
+                      GenApi::CFloatPtr ptrFloatNode = Camera->_GetNode("ExposureTime");
+                      exposure = (float)ptrFloatNode->GetValue();
+                      printf("Current Exposure: %f\n", exposure);
+                      // Set ExposureTime
+                      GenApi::CNodePtr pNode = Camera->_GetNode("ExposureTime");
+                      GenApi::CValuePtr expVal(pNode);
+                      expVal->FromString("300.0", false);
+                        
                     }
                   // Catch all possible exceptions from a node access.
                   CATCH_GENAPI_ERROR(status);
@@ -368,8 +380,7 @@ int main(int argc, char* argv[])
                   //=================================================================
                   // Set up a grab/transfer from this camera
                   //
-                  printf("Camera ROI set for \n\tHeight = %d\n\tWidth = %d\n\tPixelFormat (val) = 0x%08x\n", height,width,format);
-
+                  printf("Camera ROI set for \n\tHeight = %d\n\tWidth = %d\n\tPixelFormat (val) = 0x%08x\n\tExposure = %f\n", height,width,format,exposure);
                   maxHeight = height;
                   maxWidth = width;
                   maxDepth = GetPixelSizeInBytes(format);

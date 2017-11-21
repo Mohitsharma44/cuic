@@ -26,6 +26,14 @@
 
 #define NUM_BUF 8
 
+template<typename ValueType>
+std::string stringulate(ValueType v)
+{
+  std::ostringstream oss;
+  oss << v;
+  return oss.str();
+}
+
 typedef struct tagMY_CONTEXT
 {
   X_VIEW_HANDLE     View;
@@ -131,9 +139,12 @@ void * ImageDisplayThread( void *context)
               printf("MSS: Buffer Depth: %d\n", img->d);
               printf("MSS: Buffer Format: 0x%08x\n", img->format);
               imgaddr = img->address;
-              const char* filename = "test-%lu.bin", ms_timer_init();
+              std::string fname = "test-";
+              fname += stringulate(ms_timer_init());
+              fname += ".raw";
+              const char* filename = fname.c_str();
               std::ofstream ot;
-              ot.open(filename , std::ios::out|std::ios::binary);
+              ot.open(filename, std::ios::out|std::ios::binary);
               ot.write((const char *)imgaddr, img->recv_size);
               ot.flush();
               ot.close();

@@ -130,14 +130,14 @@ void * ImageDisplayThread( void *context)
           //printf("MSS: WaitForNextImage Status: %d\n", status);
           if ((img != NULL) && (status == GEVLIB_OK))
             {
-              printf("MSS: CURRENT TIME: %lu\n", ms_timer_init());
-              printf("MSS: Image Status: %d\n", img->status);
-              printf("MSS: Buffer State: %d\n", img->recv_size);
-              printf("MSS: Buffer ID: %d\n", img->id);
-              printf("MSS: Buffer Height: %d\n", img->h);
-              printf("MSS: Buffer Width: %d\n", img->w);
-              printf("MSS: Buffer Depth: %d\n", img->d);
-              printf("MSS: Buffer Format: 0x%08x\n", img->format);
+              printf("DEBUG: CURRENT TIME: %lu\n", ms_timer_init());
+              printf("DEBUG: Image Status: %d\n", img->status);
+              printf("DEBUG: Buffer State: %d\n", img->recv_size);
+              printf("DEBUG: Buffer ID: %d\n", img->id);
+              printf("DEBUG: Buffer Height: %d\n", img->h);
+              printf("DEBUG: Buffer Width: %d\n", img->w);
+              printf("DEBUG: Buffer Depth: %d\n", img->d);
+              printf("DEBUG: Buffer Format: 0x%08x\n", img->format);
               imgaddr = img->address;
               std::string fname = "test-";
               fname += stringulate(ms_timer_init());
@@ -151,13 +151,13 @@ void * ImageDisplayThread( void *context)
               //printf("MSS: Image Address: %s", imgaddr);
               if (img->status == 0)
                 {
-                  printf("MSS: Got the image \n");
+                  printf("DEBUG: Got the image \n");
                   // Convert the image format if required.
                   if (displayContext->convertFormat)
                     {
                       int gev_depth = GevGetPixelDepthInBits(img->format);
-                      printf("Image Width: %d\n", img->w);
-                      printf("Image Height: %d\n", img->h);
+                      printf("DEBUG: Image Width: %d\n", img->w);
+                      printf("DEBUG:  Height: %d\n", img->h);
                       // Convert the image to a displayable format.
                       //(Note : Not all formats can be displayed properly at this time (planar, YUV*, 10/12 bit packed).
                       ConvertGevImageToX11Format( img->w, img->h, gev_depth, img->format, img->address, \
@@ -232,7 +232,7 @@ static void OutputFeatureValuePair( const char *feature_name, const char *value_
   if ( (feature_name != NULL)  && (value_string != NULL) )
     {
       // Feature : Value pair output (in one place in to ease changing formats or output method - if desired).
-      fprintf(fp, "%s,%s\n", feature_name, value_string);
+      fprintf(fp, "%s %s\n", feature_name, value_string);
       //printf("%s --> %s\n", feature_name, value_string);
     }
 }
@@ -307,23 +307,46 @@ static void OutputFeatureValues( const GenApi::CNodePtr &ptrFeature, FILE *fp )
     }
 }
 
-
-
-int SaveAllFeatures(GenApi::CNodeMapRef *Camera, char filename[MAX_PATH])
+static void ValidateFeatureValues( const GenApi::CNodePtr &ptrFeature )
 {
+
+  GenApi::CCategoryPtr ptrCategory(ptrFeature);
+  if( ptrCategory.IsValid() )
+    {
+      GenApi::FeatureList_t Features;
+      ptrCategory->GetFeatures(Features);
+      for( GenApi::FeatureList_t::iterator itFeature=Features.begin(); itFeature!=Features.end(); itFeature++ )
+        {
+          ValidateFeatureValues( (*itFeature) );
+        }
+    }
+  else
+    {
+      // Issue a "Get" on the feature (with validate set to true).
+      GenApi::CValuePtr valNode(ptrFeature);
+      if ((GenApi::RW == valNode->GetAccessMode()) || (GenApi::RO == valNode->GetAccessMode()) )
+        {
+          int status = 0;
+          try {
+            valNode->ToString(true);
+          }
+          // Catch all possible exceptions from a node access.
+          CATCH_GENAPI_ERROR(status);
+          if (status != 0)
+            {
+              printf("WARNING: load_features : Validation failed for feature %s\n", static_cast<const char *>(ptrFeature->GetName()));
+            }
+        }
+    }
+}
+
+int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *command)
+{
+  int error_count = 0;
+  int feature_count = 0;
   GEV_STATUS status = 0;
   FILE *fp = NULL;
-  // Opening file to dump all the features
-  if (filename == NULL)
-    {
-      fp = stdout;
-    }
-  fp = fopen(filename, "w");
-  if (fp == NULL)
-    {
-      printf("MSS: Error opening the file \n");
-    }
-  printf("MSS: Put the camera in streaming feature mode ... \n");
+  printf("DEBUG: Put the camera in streaming feature mode ... \n");
   GenApi::CCommandPtr start = Camera->_GetNode("Std::DeviceFeaturePersistenceStart");
   if (start) {
     try {
@@ -342,13 +365,78 @@ int SaveAllFeatures(GenApi::CNodeMapRef *Camera, char filename[MAX_PATH])
     // Traverse the node map and dump all the { feature value } pairs.
     if ( status == 0 )
       {
-        // Find the standard "Root" node and dump the features.
-        GenApi::CNodePtr pRoot = Camera->_GetNode("Root");
-        OutputFeatureValues(pRoot, fp);
+        if (strcmp(command, "store") == 0)
+          {
+            // Opening file to dump all the features
+            if (filename == NULL)
+              {
+                fp = stdout;
+              }
+            fp = fopen(filename, "w");
+            if (fp == NULL)
+              {
+                printf("CRITICAL: Error opening the file \n");
+              }
+            // Find the standard "Root" node and dump the features.
+            GenApi::CNodePtr pRoot = Camera->_GetNode("Root");
+            OutputFeatureValues(pRoot, fp);
+          }
+        else if (strcmp(command, "load") == 0)
+          {
+            // Opening file to dump all the features
+            if (filename == NULL)
+              {
+                fp = stdout;
+              }
+            fp = fopen(filename, "r");
+            if (fp == NULL)
+              {
+                printf("CRITICAL: Error opening the file \n");
+              }
+            char feature_name[MAX_GEVSTRING_LENGTH+1] = {0};
+            char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
+            while ( 2 == fscanf(fp, "%s %s", feature_name, value_str) )
+              {
+                status = 0;
+                // Find node and write the feature string (without validation).
+                GenApi::CNodePtr pNode = Camera->_GetNode(feature_name);
+                if (pNode)
+                  {
+                    GenApi::CValuePtr valNode(pNode);
+                    try {
+                      valNode->FromString(value_str, false);
+                    }
+                    // Catch all possible exceptions from a node access.
+                    CATCH_GENAPI_ERROR(status);
+                    if (status != 0)
+                      {
+                        error_count++;
+                        printf("WARNING: Error restoring feature %s : with value %s\n", feature_name, value_str);
+                      }
+                    else
+                      {
+                        feature_count++;
+                      }
+                  }
+                else
+                  {
+                    error_count++;
+                    printf("WARNING: Error restoring feature %s : with value %s\n", feature_name, value_str);
+                  }
+              }
+            if (error_count == 0)
+              {
+                printf("DEBUG: %d Features loaded successfully !\n", feature_count);
+              }
+            else
+              {
+                printf("INFO: %d Features loaded successfully : %d Features had errors\n", feature_count, error_count);
+              }
+          }
       }
 
     // End the "streaming feature mode".
-    printf("MSS: Ending the streaming mode ... \n");
+    printf("DEBUG: Ending the streaming mode ... \n");
     GenApi::CCommandPtr end = Camera->_GetNode("Std::DeviceFeaturePersistenceEnd");
     if ( end  )
       {
@@ -368,6 +456,17 @@ int SaveAllFeatures(GenApi::CNodeMapRef *Camera, char filename[MAX_PATH])
 
     // Done - close the file
     fclose(fp);
+    // Validate if features are loaded into the camera
+    if (strcmp(command, "load") == 0)
+      {
+        if (status == 0)
+          {
+            // Iterate through all of the features calling "Get" with validation enabled.
+            // Find the standard "Root" node and dump the features.
+            GenApi::CNodePtr pRoot = Camera->_GetNode("Root");
+            ValidateFeatureValues( pRoot );
+          }
+      }
     return 0;
   }
   else
@@ -412,7 +511,7 @@ int main(int argc, char* argv[])
 
   status = GevGetCameraList( pCamera, MAX_CAMERAS, &numCamera);
 
-  printf ("%d camera(s) on the network\n", numCamera);
+  printf ("INFO: %d camera(s) on the network\n", numCamera);
 
   // Select the first camera found (unless the command line has a parameter = the camera index)
   if (numCamera != 0)
@@ -422,7 +521,7 @@ int main(int argc, char* argv[])
           sscanf(argv[1], "%d", &camIndex);
           if (camIndex >= (int)numCamera)
             {
-              printf("Camera index out of range - only %d camera(s) are present\n", numCamera);
+              printf("WARNING: Camera index out of range - only %d camera(s) are present\n", numCamera);
               camIndex = -1;
             }
         }
@@ -471,7 +570,7 @@ int main(int argc, char* argv[])
                   status = GevGetGenICamXML_FileName( handle, (int)sizeof(xmlFileName), xmlFileName);
                   if (status == GEVLIB_OK)
                     {
-                      printf("XML stored as %s\n", xmlFileName);
+                      printf("DEBUG: XML stored as %s\n", xmlFileName);
                     }
                 }
             }
@@ -483,7 +582,7 @@ int main(int argc, char* argv[])
 
               // Adjust the camera interface options if desired (see the manual)
               GevGetCameraInterfaceOptions( handle, &camOptions);
-              camOptions.heartbeat_timeout_ms = 90000;                // For debugging (delay camera timeout while in debugger)
+              //camOptions.heartbeat_timeout_ms = 90000;                // For debugging (delay camera timeout while in debugger)
 
 #if TUNE_STREAMING_THREADS
               // Some tuning can be done here. (see the manual)
@@ -519,12 +618,21 @@ int main(int argc, char* argv[])
                   try
                     {
                       // Save All Features
-                      char filename[] = "config_fname.csv";
-                      printf("MSS: Saving All Features ... \n");
-                      status = SaveAllFeatures(Camera, filename);
+                      const char* filename = "config_fname.csv";
+                      const char* store_command = "store";
+                      const char* load_command = "load";
+                      printf("INFO: Saving All Features ... \n");
+                      status = CamFeatures(Camera, filename, store_command);
                       if (status != 0){
-                        printf("MSS: Couldn't save features\n");
+                        printf("WARNING: Couldn't save features\n");
                       }
+
+                      printf("INFO: Loading All Features ... \n");
+                      status = CamFeatures(Camera, filename, load_command);
+                      if (status != 0){
+                        printf("WARNING: Couldn't load features\n");
+                      }
+
                       // Datatypes of Features
                       GenApi::CNodePtr pNode = NULL;
                       GenApi::CIntegerPtr ptrIntNode = 0;
@@ -609,7 +717,7 @@ int main(int argc, char* argv[])
                   //=================================================================
                   // Set up a grab/transfer from this camera
                   //
-                  printf("Camera ROI set for \n\tHeight = %d\n\tWidth = %d\n\tPixelFormat (val) = 0x%08x\n\tExposure = %f\n", height,width,format,exposure);
+                  //printf("Camera ROI set for \n\tHeight = %d\n\tWidth = %d\n\tPixelFormat (val) = 0x%08x\n\tExposure = %f\n", height,width,format,exposure);
                   maxHeight = height;
                   maxWidth = width;
                   maxDepth = GetPixelSizeInBytes(format);
@@ -656,7 +764,7 @@ int main(int argc, char* argv[])
                   pixelOrder = GevGetRGBPixelOrder( format);
                   if (!IsGevPixelTypeX11Displayable(format))
                     {
-                      printf("MSS: Not displayable format\n");
+                      printf("WARNING: Not displayable format\n");
                       // Our X11 functions will not display this image - need to set up to convert it.
                       if (GevIsPixelTypeRGB(format))
                         {
@@ -728,16 +836,16 @@ int main(int argc, char* argv[])
                               GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
                               if (val == 1)
                                 {
-                                  printf("TurboMode Enabled\n");
+                                  printf("DEBUG: TurboMode Enabled\n");
                                 }
                               else
                                 {
-                                  printf("TurboMode Disabled\n");
+                                  printf("DEBUG: TurboMode Disabled\n");
                                 }
                             }
                           else
                             {
-                              printf("*** TurboDrive is NOT Available for this device/pixel format combination ***\n");
+                              printf("INFO: *** TurboDrive is NOT Available for this device/pixel format combination ***\n");
                             }
                         }
 
@@ -754,7 +862,7 @@ int main(int argc, char* argv[])
                       // Snap N (1 to 9 frames)
                       if ((c >= '1')&&(c<='9'))
                         {
-                          printf("MSS: Saving the image ... \n");
+                          printf("INFO: Saving the image ... \n");
                           for (i = 0; i < numBuffers; i++)
                             {
                               memset(bufAddress[i], 0, size);
@@ -767,10 +875,12 @@ int main(int argc, char* argv[])
                             }
 
                           status = GevStartImageTransfer( handle, (UINT32)(c-'0'));
-                          if (status != 0) printf("Error starting grab - 0x%x  or %d\n", status, status);
+                          if (status != 0) {
+                            printf("WARNING: Error starting grab - 0x%x  or %d\n", status, status);
+                          }
                           else
                             {
-                              printf("MSS: Started grabbing ... \n");
+                              printf("DEBUG: Started grabbing ... \n");
                               //GEV_BUFFER_OBJECT *img = NULL;
                               //GEV_STATUS status_im = 0;
 
@@ -797,7 +907,9 @@ int main(int argc, char* argv[])
                               memset(bufAddress[i], 255, size);
                             }
                           status = GevStartImageTransfer( handle, -1);
-                          if (status != 0) printf("Error starting grab - 0x%x  or %d\n", status, status);
+                          if (status != 0) {
+                            printf("WARNING: Error starting grab - 0x%x  or %d\n", status, status);
+                          }
                         }
 
                       if (c == '?')
@@ -835,7 +947,7 @@ int main(int argc, char* argv[])
             }
           else
             {
-              printf("Error : 0x%0x : opening camera\n", status);
+              printf("CRITICAL : 0x%0x : opening camera\n", status);
             }
         }
     }

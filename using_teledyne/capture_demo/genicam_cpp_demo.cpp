@@ -227,6 +227,155 @@ int IsTurboDriveAvailable(GEV_CAMERA_HANDLE handle)
   return 0;
 }
 
+static void OutputFeatureValuePair( const char *feature_name, const char *value_string, FILE *fp )
+{
+  if ( (feature_name != NULL)  && (value_string != NULL) )
+    {
+      // Feature : Value pair output (in one place in to ease changing formats or output method - if desired).
+      fprintf(fp, "%s,%s\n", feature_name, value_string);
+      //printf("%s --> %s\n", feature_name, value_string);
+    }
+}
+
+static void OutputFeatureValues( const GenApi::CNodePtr &ptrFeature, FILE *fp )
+{
+
+  GenApi::CCategoryPtr ptrCategory(ptrFeature);
+  if( ptrCategory.IsValid() )
+    {
+      GenApi::FeatureList_t Features;
+      ptrCategory->GetFeatures(Features);
+      for( GenApi::FeatureList_t::iterator itFeature=Features.begin(); itFeature!=Features.end(); itFeature++ )
+        {
+          OutputFeatureValues( (*itFeature), fp );
+        }
+    }
+  else
+    {
+      // Store only "streamable" features (since only they can be restored).
+      if ( ptrFeature->IsStreamable() )
+        {
+          // Create a selector set (in case this feature is selected)
+          bool selectorSettingWasOutput = false;
+          GenApi::CSelectorSet selectorSet(ptrFeature);
+
+          // Loop through all the selectors that select this feature.
+          // Use the magical CSelectorSet class that handles the
+          //   "set of selectors that select this feature" and indexes
+          // through all possible combinations so we can save all of them.
+          selectorSet.SetFirst();
+          do
+            {
+              GenApi::CValuePtr valNode(ptrFeature);
+              if ( valNode.IsValid() && (GenApi::RW == valNode->GetAccessMode()) && (ptrFeature->IsFeature()) )
+                {
+                  // Its a valid streamable feature.
+                  // Get its selectors (if it has any)
+                  GenApi::FeatureList_t selectorList;
+                  selectorSet.GetSelectorList( selectorList, true );
+
+                  for ( GenApi::FeatureList_t ::iterator itSelector=selectorList.begin(); itSelector!=selectorList.end(); itSelector++ )
+                    {
+                      // Output selector : selectorValue as a feature : value pair.
+                      selectorSettingWasOutput = true;
+                      GenApi::CNodePtr selectedNode( *itSelector);
+                      GenApi::CValuePtr selectedValue( *itSelector);
+                      OutputFeatureValuePair(static_cast<const char *>(selectedNode->GetName()), static_cast<const char *>(selectedValue->ToString()), fp);
+                    }
+                  // Output feature : value pair for this selector combination
+                  // It just outputs the feature : value pair if there are no selectors.
+                  OutputFeatureValuePair(static_cast<const char *>(ptrFeature->GetName()), static_cast<const char *>(valNode->ToString()), fp);
+                }
+
+            } while( selectorSet.SetNext());
+          // Reset to original selector/selected value (if any was used)
+          selectorSet.Restore();
+
+          // Save the original settings for any selector that was handled (looped over) above.
+          if (selectorSettingWasOutput)
+            {
+              GenApi::FeatureList_t selectingFeatures;
+              selectorSet.GetSelectorList( selectingFeatures, true);
+              for ( GenApi::FeatureList_t ::iterator itSelector = selectingFeatures.begin(); itSelector != selectingFeatures.end(); ++itSelector)
+                {
+                  GenApi::CNodePtr selectedNode( *itSelector);
+                  GenApi::CValuePtr selectedValue( *itSelector);
+                  OutputFeatureValuePair(static_cast<const char *>(selectedNode->GetName()), static_cast<const char *>(selectedValue->ToString()), fp);
+                }
+            }
+        }
+    }
+}
+
+
+
+int SaveAllFeatures(GenApi::CNodeMapRef *Camera, char filename[MAX_PATH])
+{
+  GEV_STATUS status = 0;
+  FILE *fp = NULL;
+  // Opening file to dump all the features
+  if (filename == NULL)
+    {
+      fp = stdout;
+    }
+  fp = fopen(filename, "w");
+  if (fp == NULL)
+    {
+      printf("MSS: Error opening the file \n");
+    }
+  printf("MSS: Put the camera in streaming feature mode ... \n");
+  GenApi::CCommandPtr start = Camera->_GetNode("Std::DeviceFeaturePersistenceStart");
+  if (start) {
+    try {
+      int done = FALSE;
+      int timeout = 5;
+      start->Execute();
+      while(!done && (timeout-- > 0))
+        {
+          Sleep(10);
+          done = start->IsDone();
+        }
+    }
+    // Catch all possible exceptions from a node access.
+    CATCH_GENAPI_ERROR(status);
+
+    // Traverse the node map and dump all the { feature value } pairs.
+    if ( status == 0 )
+      {
+        // Find the standard "Root" node and dump the features.
+        GenApi::CNodePtr pRoot = Camera->_GetNode("Root");
+        OutputFeatureValues(pRoot, fp);
+      }
+
+    // End the "streaming feature mode".
+    printf("MSS: Ending the streaming mode ... \n");
+    GenApi::CCommandPtr end = Camera->_GetNode("Std::DeviceFeaturePersistenceEnd");
+    if ( end  )
+      {
+        try {
+          int done = FALSE;
+          int timeout = 5;
+          end->Execute();
+          while(!done && (timeout-- > 0))
+            {
+              Sleep(10);
+              done = end->IsDone();
+            }
+        }
+        // Catch all possible exceptions from a node access.
+        CATCH_GENAPI_ERROR(status);
+      }
+
+    // Done - close the file
+    fclose(fp);
+    return 0;
+  }
+  else
+    {
+      return 1;
+    }
+}
+
 int main(int argc, char* argv[])
 {
   GEV_DEVICE_INTERFACE  pCamera[MAX_CAMERAS] = {0};
@@ -300,8 +449,8 @@ int main(int argc, char* argv[])
           UINT32 pixFormat = 0;
           UINT32 pixDepth = 0;
           UINT32 pixelOrder = 0;
-          UINT32 autobright = 0;
-          UINT32 autoexposure = 0;
+          //UINT32 autobright = 0;
+          //UINT32 autoexposure = 0;
           float exposure = 0;
           float gain = 0;
           float framerate = 0;
@@ -369,12 +518,19 @@ int main(int argc, char* argv[])
                   // Access some features using the bare GenApi interface methods
                   try
                     {
+                      // Save All Features
+                      char filename[] = "config_fname.csv";
+                      printf("MSS: Saving All Features ... \n");
+                      status = SaveAllFeatures(Camera, filename);
+                      if (status != 0){
+                        printf("MSS: Couldn't save features\n");
+                      }
                       // Datatypes of Features
                       GenApi::CNodePtr pNode = NULL;
                       GenApi::CIntegerPtr ptrIntNode = 0;
                       GenApi::CEnumerationPtr ptrEnumNode = NULL;
                       GenApi::CFloatPtr ptrFloatNode = 0;
-                      
+
                       // --------- Set Parameters
 
                       // Disable auto brightness
@@ -386,7 +542,7 @@ int main(int argc, char* argv[])
                       //pNode = Camera->_GetNode("ExposureAuto");
                       //GenApi::CValuePtr autoexpval(pNode);
                       //autoexpval->FromString("0", false);
-                      
+
                       // Set ExposureTime
                       pNode = Camera->_GetNode("ExposureTime");
                       GenApi::CValuePtr expVal(pNode);
@@ -436,7 +592,7 @@ int main(int argc, char* argv[])
                       //ptrEnumNode = Camera->_GetNode("ExposureAuto");
                       //autoexposure = (UINT32)ptrEnumNode->GetIntValue();
                       //printf("MSS: ExposureAuto: %d\n", autoexposure);
-                      
+
                       // Get AutoBrightness Value
                       //ptrEnumNode = Camera->_GetNode("autoBrightnessMode");
                       //autobright = (UINT32)ptrEnumNode->GetIntValue();
@@ -445,7 +601,6 @@ int main(int argc, char* argv[])
                     }
                   // Catch all possible exceptions from a node access.
                   CATCH_GENAPI_ERROR(status);
-                  //printf("Error setting a particular feature.. still I will continue\n");
                   //status = 0;
                 }
 

@@ -300,7 +300,11 @@ int main(int argc, char* argv[])
           UINT32 pixFormat = 0;
           UINT32 pixDepth = 0;
           UINT32 pixelOrder = 0;
+          UINT32 autobright = 0;
+          UINT32 autoexposure = 0;
           float exposure = 0;
+          float gain = 0;
+          float framerate = 0;
 
           //====================================================================
           // Open the camera.
@@ -365,25 +369,84 @@ int main(int argc, char* argv[])
                   // Access some features using the bare GenApi interface methods
                   try
                     {
-                      //Mandatory features....
-                      GenApi::CIntegerPtr ptrIntNode = Camera->_GetNode("Width");
+                      // Datatypes of Features
+                      GenApi::CNodePtr pNode = NULL;
+                      GenApi::CIntegerPtr ptrIntNode = 0;
+                      GenApi::CEnumerationPtr ptrEnumNode = NULL;
+                      GenApi::CFloatPtr ptrFloatNode = 0;
+                      
+                      // --------- Set Parameters
+
+                      // Disable auto brightness
+                      //pNode = Camera->_GetNode("autoBrightnessMode");
+                      //GenApi::CValuePtr autobrightval(pNode);
+                      //autobrightval->FromString("0", false);
+
+                      // Disable auto exposure
+                      //pNode = Camera->_GetNode("ExposureAuto");
+                      //GenApi::CValuePtr autoexpval(pNode);
+                      //autoexpval->FromString("0", false);
+                      
+                      // Set ExposureTime
+                      pNode = Camera->_GetNode("ExposureTime");
+                      GenApi::CValuePtr expVal(pNode);
+                      expVal->FromString("300.0", false);
+
+                      // Set Framerate
+                      pNode = Camera->_GetNode("AcquisitionFrameRate");
+                      GenApi::CValuePtr expval2(pNode);
+                      expval2->FromString("0.3", false);
+
+                      // Set Gain -- Will not work with Analog Mode
+                      pNode = Camera->_GetNode("Gain");
+                      GenApi::CValuePtr expVal1(pNode);
+                      expVal1->FromString("1.0", false);
+
+                      // --------- Get Parameters
+                      // Get Width and Height
+                      //GenApi::CIntegerPtr ptrIntNode = Camera->_GetNode("Width");
+                      ptrIntNode = Camera->_GetNode("Width");
                       width = (UINT32) ptrIntNode->GetValue();
                       ptrIntNode = Camera->_GetNode("Height");
                       height = (UINT32) ptrIntNode->GetValue();
-                      GenApi::CEnumerationPtr ptrEnumNode = Camera->_GetNode("PixelFormat") ;
+
+                      // Get Pixel Format
+                      //GenApi::CEnumerationPtr ptrEnumNode = Camera->_GetNode("PixelFormat") ;
+                      ptrEnumNode = Camera->_GetNode("PixelFormat");
                       format = (UINT32)ptrEnumNode->GetIntValue();
+
                       // Get ExposureTime
-                      GenApi::CFloatPtr ptrFloatNode = Camera->_GetNode("ExposureTime");
+                      //GenApi::CFloatPtr ptrExposureNode = Camera->_GetNode("ExposureTime");
+                      ptrFloatNode = Camera->_GetNode("ExposureTime");
                       exposure = (float)ptrFloatNode->GetValue();
                       printf("Current Exposure: %f\n", exposure);
-                      // Set ExposureTime
-                      GenApi::CNodePtr pNode = Camera->_GetNode("ExposureTime");
-                      GenApi::CValuePtr expVal(pNode);
-                      expVal->FromString("300.0", false);
-                        
+
+                      // Get Gain
+                      //GenApi::CFloatPtr ptrGainNode = Camera->_GetNode("Gain");
+                      ptrFloatNode = Camera->_GetNode("Gain");
+                      gain = (float)ptrFloatNode->GetValue();
+                      printf("MSS: Gain: %f\n", gain);
+
+                      // Get Framerate
+                      ptrFloatNode = Camera->_GetNode("AcquisitionFrameRate");
+                      framerate = (float)ptrFloatNode->GetValue();
+                      printf("MSS: Framerate: %f\n", framerate);
+
+                      // Get AutoExposure Value
+                      //ptrEnumNode = Camera->_GetNode("ExposureAuto");
+                      //autoexposure = (UINT32)ptrEnumNode->GetIntValue();
+                      //printf("MSS: ExposureAuto: %d\n", autoexposure);
+                      
+                      // Get AutoBrightness Value
+                      //ptrEnumNode = Camera->_GetNode("autoBrightnessMode");
+                      //autobright = (UINT32)ptrEnumNode->GetIntValue();
+                      //printf("MSS: autoBrightnessMode: %d\n", autobright);
+
                     }
                   // Catch all possible exceptions from a node access.
                   CATCH_GENAPI_ERROR(status);
+                  //printf("Error setting a particular feature.. still I will continue\n");
+                  //status = 0;
                 }
 
               if (status == 0)

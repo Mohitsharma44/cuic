@@ -24,6 +24,7 @@
 // Enable/disable transfer tuning (buffering, timeouts, thread affinity).
 #define TUNE_STREAMING_THREADS 0
 
+// Maximum number of buffers in camera
 #define NUM_BUF 8
 
 template<typename ValueType>
@@ -232,7 +233,7 @@ static void OutputFeatureValuePair( const char *feature_name, const char *value_
   if ( (feature_name != NULL)  && (value_string != NULL) )
     {
       // Feature : Value pair output (in one place in to ease changing formats or output method - if desired).
-      fprintf(fp, "%s %s\n", feature_name, value_string);
+      fprintf(fp, "%s,%s\n", feature_name, value_string);
       //printf("%s --> %s\n", feature_name, value_string);
     }
 }
@@ -395,7 +396,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
               }
             char feature_name[MAX_GEVSTRING_LENGTH+1] = {0};
             char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
-            while ( 2 == fscanf(fp, "%s %s", feature_name, value_str) )
+            while ( 2 == fscanf(fp, "%s,%s", feature_name, value_str) )
               {
                 status = 0;
                 // Find node and write the feature string (without validation).
@@ -639,8 +640,8 @@ int main(int argc, char* argv[])
                       GenApi::CEnumerationPtr ptrEnumNode = NULL;
                       GenApi::CFloatPtr ptrFloatNode = 0;
 
-                      // --------- Set Parameters
-
+                      // --------- Set Parameters Manually if need be
+                      /*
                       // Disable auto brightness
                       //pNode = Camera->_GetNode("autoBrightnessMode");
                       //GenApi::CValuePtr autobrightval(pNode);
@@ -665,7 +666,8 @@ int main(int argc, char* argv[])
                       pNode = Camera->_GetNode("Gain");
                       GenApi::CValuePtr expVal1(pNode);
                       expVal1->FromString("1.0", false);
-
+                      */
+                      
                       // --------- Get Parameters
                       // Get Width and Height
                       //GenApi::CIntegerPtr ptrIntNode = Camera->_GetNode("Width");
@@ -866,12 +868,6 @@ int main(int argc, char* argv[])
                           for (i = 0; i < numBuffers; i++)
                             {
                               memset(bufAddress[i], 0, size);
-                              //memset(bufAddress[i], 255, size);
-                              //for (int j=0; j < 10; j++)
-                              //{
-                              //    printf("%lu \t", (unsigned long int)bufAddress[j]);
-                              //  }
-                              //printf("\n\n");
                             }
 
                           status = GevStartImageTransfer( handle, (UINT32)(c-'0'));
@@ -881,21 +877,6 @@ int main(int argc, char* argv[])
                           else
                             {
                               printf("DEBUG: Started grabbing ... \n");
-                              //GEV_BUFFER_OBJECT *img = NULL;
-                              //GEV_STATUS status_im = 0;
-
-                              // Wait for images to be received
-                              //status_im = GevWaitForNextImage(handle, &img, 1000);
-                              //printf("Status: %d\n", img->status);
-                              /*std::ofstream ot;
-                                ot.open("test-%d.bin",i , std::ios::out|std::ios::binary);
-                                ot.write((const char *)bufAddress[i], size);
-                                ot.flush();
-                                ot.close();*/
-
-                              //printf("Width: %s", img->w, "\n");
-                              //printf("Height: %s", img->h, "\n");
-                              //printf("depth: %d\n", gev_depth);
                             }
                         }
                       // Continuous grab.
@@ -903,8 +884,7 @@ int main(int argc, char* argv[])
                         {
                           for (i = 0; i < numBuffers; i++)
                             {
-                              //memset(bufAddress[i], 0, size);
-                              memset(bufAddress[i], 255, size);
+                              memset(bufAddress[i], 0, size);
                             }
                           status = GevStartImageTransfer( handle, -1);
                           if (status != 0) {

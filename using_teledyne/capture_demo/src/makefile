@@ -13,7 +13,7 @@ else
 $(error	archdefs.mk file not found. It gets configured on installation ***)
 endif
 
-INC_PATH = -I. -I$(IROOT)/include -I$(IROOT)/examples/common $(INC_GENICAM)
+INC_PATH = -I. -I$(IROOT)/include -I$(IROOT)/examples/common $(INC_GENICAM) -I../include
                           
 DEBUGFLAGS = -g 
 

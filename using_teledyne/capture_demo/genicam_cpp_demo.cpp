@@ -1,3 +1,8 @@
+/***
+Author: Mohit Sharma
+NYU CUSP Nov 2017
+***/
+
 #include "stdio.h"
 #include "cordef.h"
 #include "GenApi/GenApi.h"              //!< GenApi lib definitions.
@@ -616,7 +621,7 @@ int main(int argc, char* argv[])
                       // Set Framerate
                       pNode = Camera->_GetNode("AcquisitionFrameRate");
                       GenApi::CValuePtr expval2(pNode);
-                      expval2->FromString("0.3", false);
+                      expval2->FromString("0.5", false);
 
                       // --------- Get Parameters
                       // Get Width and Height
@@ -717,7 +722,8 @@ int main(int argc, char* argv[])
                     {
                       c = GetKey();
 
-                      // Toggle turboMode
+                      // Toggle turboMode -- only for some properietary cameras
+                      // Leaving this here for future reference
                       if ((c == 'T') || (c=='t'))
                         {
                           // See if TurboDrive is available.
@@ -826,9 +832,6 @@ int main(int argc, char* argv[])
   // Close socket API
   _CloseSocketAPI ();     // must close API even on error
 
-
-  //printf("Hit any key to exit\n");
-  //kbhit();
 
   return 0;
 }

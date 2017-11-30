@@ -1,6 +1,6 @@
 /***
-Author: Mohit Sharma
-NYU CUSP Nov 2017
+    Author: Mohit Sharma
+    NYU CUSP Nov 2017
 ***/
 
 #include "stdio.h"
@@ -13,6 +13,9 @@ NYU CUSP Nov 2017
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <plog/Log.h>
+#include <plog/Appenders/ColorConsoleAppender.h>
+
 
 #define MAX_NETIF                                       8
 #define MAX_CAMERAS_PER_NETIF   32
@@ -23,6 +26,12 @@ NYU CUSP Nov 2017
 #define TUNE_STREAMING_THREADS 0
 // Maximum number of buffers in camera
 #define NUM_BUF 8
+
+// stupid logging enum
+enum // Define log instances. Default is 0 and is omitted from this enum.
+  {
+    FileLog = 1
+  };
 
 template<typename ValueType>
 std::string stringulate(ValueType v)
@@ -117,29 +126,37 @@ void * ImageSaveThread( void *context)
 
           // Wait for images to be received
           status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
-          //printf("MSS: WaitForNextImage Status: %d\n", status);
+          LOG_VERBOSE << "WaitForNextImage Status: " << status;
+          LOG_VERBOSE_(FileLog) << "WaitForNextImage Status: " << status;
           if ((img != NULL) && (status == GEVLIB_OK))
             {
-              printf("DEBUG: CURRENT TIME: %lu\n", ms_timer_init());
-              printf("DEBUG: Image Status: %d\n", img->status);
-              printf("DEBUG: Buffer State: %d\n", img->recv_size);
-              printf("DEBUG: Buffer ID: %d\n", img->id);
-              printf("DEBUG: Buffer Height: %d\n", img->h);
-              printf("DEBUG: Buffer Width: %d\n", img->w);
-              printf("DEBUG: Buffer Depth: %d\n", img->d);
-              printf("DEBUG: Buffer Format: 0x%08x\n", img->format);
+              LOG_VERBOSE << "Image Status: " << img->status;
+              LOG_VERBOSE_(FileLog) << "Image Status: " << img->status;
+              LOG_VERBOSE << "Buffer State: " << img->recv_size;
+              LOG_VERBOSE_(FileLog) << "Buffer State: " << img->recv_size;
+              LOG_VERBOSE << "Buffer ID: " << img->id;
+              LOG_VERBOSE_(FileLog) << "Buffer ID: " << img->id;
+              LOG_VERBOSE << "Buffer Height: " << img->h;
+              LOG_VERBOSE_(FileLog) << "Buffer Height: " << img->h;
+              LOG_VERBOSE << "Buffer Width: " << img->w;
+              LOG_VERBOSE_(FileLog) << "Buffer Width: " << img->w;
+              LOG_VERBOSE << "Buffer Depth: " << img->d;
+              LOG_VERBOSE_(FileLog) << "Buffer Depth: " << img->d;
+              LOG_VERBOSE << "Buffer Format: " << std::hex << img->format;
+              LOG_VERBOSE_(FileLog) << "Buffer Format: " << std::hex << img->format;
               imgaddr = img->address;
               std::string fname = "test-";
               fname += stringulate(ms_timer_init());
               fname += ".raw";
               const char* filename = fname.c_str();
+              LOG_INFO << "Saving file " << filename;
+              LOG_INFO_(FileLog) << "Saving file " << filename;
               // Write the image data to file
               std::ofstream ot;
               ot.open(filename, std::ios::out|std::ios::binary);
               ot.write((const char *)imgaddr, img->recv_size);
               ot.flush();
               ot.close();
-              //printf("MSS: Image Address: %s", imgaddr);
             }
 #if USE_SYNCHRONOUS_BUFFER_CYCLING
           if (img != NULL)
@@ -155,6 +172,8 @@ void * ImageSaveThread( void *context)
 
 int IsTurboDriveAvailable(GEV_CAMERA_HANDLE handle)
 {
+  LOG_VERBOSE << "checking if TurboDrive is available";
+  LOG_VERBOSE_(FileLog) << "checking if TurboDrive is available";
   int type;
   UINT32 val = 0;
 
@@ -195,6 +214,8 @@ static void OutputFeatureValuePair( const char *feature_name, const char *value_
   if ( (feature_name != NULL)  && (value_string != NULL) )
     {
       // Feature : Value pair output (in one place in to ease changing formats or output method - if desired).
+      LOG_VERBOSE << feature_name << " set to " << value_string;
+      LOG_VERBOSE_(FileLog) << feature_name << " set to " << value_string;
       fprintf(fp, "%s %s\n", feature_name, value_string);
       //printf("%s --> %s\n", feature_name, value_string);
     }
@@ -202,7 +223,6 @@ static void OutputFeatureValuePair( const char *feature_name, const char *value_
 
 static void OutputFeatureValues( const GenApi::CNodePtr &ptrFeature, FILE *fp )
 {
-
   GenApi::CCategoryPtr ptrCategory(ptrFeature);
   if( ptrCategory.IsValid() )
     {
@@ -272,7 +292,6 @@ static void OutputFeatureValues( const GenApi::CNodePtr &ptrFeature, FILE *fp )
 
 static void ValidateFeatureValues( const GenApi::CNodePtr &ptrFeature )
 {
-
   GenApi::CCategoryPtr ptrCategory(ptrFeature);
   if( ptrCategory.IsValid() )
     {
@@ -297,7 +316,10 @@ static void ValidateFeatureValues( const GenApi::CNodePtr &ptrFeature )
           CATCH_GENAPI_ERROR(status);
           if (status != 0)
             {
-              printf("WARNING: load_features : Validation failed for feature %s\n", static_cast<const char *>(ptrFeature->GetName()));
+              LOG_WARNING << "Validation failed for feature "
+                          << static_cast<const char *>(ptrFeature->GetName());
+              LOG_WARNING_(FileLog) << "Validation failed for feature "
+                          << static_cast<const char *>(ptrFeature->GetName());
             }
         }
     }
@@ -305,11 +327,14 @@ static void ValidateFeatureValues( const GenApi::CNodePtr &ptrFeature )
 
 int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *command)
 {
+  LOG_VERBOSE << "Inside CamFeatures";
+  LOG_VERBOSE_(FileLog) << "Inside CamFeatures";
   int error_count = 0;
   int feature_count = 0;
   GEV_STATUS status = 0;
   FILE *fp = NULL;
-  printf("DEBUG: Put the camera in streaming feature mode ... \n");
+  LOG_DEBUG << "Put the camera in streaming feature mode";
+  LOG_DEBUG_(FileLog) << "Put the camera in streaming feature mode";
   GenApi::CCommandPtr start = Camera->_GetNode("Std::DeviceFeaturePersistenceStart");
   if (start) {
     try {
@@ -338,10 +363,13 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
             fp = fopen(filename, "w");
             if (fp == NULL)
               {
-                printf("CRITICAL: Error opening the file \n");
+                LOG_FATAL << "Error opening the configuration file";
+                LOG_FATAL_(FileLog) << "Error opening the configuration file";
               }
             // Find the standard "Root" node and dump the features.
             GenApi::CNodePtr pRoot = Camera->_GetNode("Root");
+            LOG_DEBUG << "Writing feature values to the file";
+            LOG_DEBUG_(FileLog) << "Writing feature values to the file";
             OutputFeatureValues(pRoot, fp);
           }
         else if (strcmp(command, "load") == 0)
@@ -354,7 +382,8 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
             fp = fopen(filename, "r");
             if (fp == NULL)
               {
-                printf("CRITICAL: Error opening the file \n");
+                LOG_FATAL << "Error opening the configuration file";
+                LOG_FATAL_(FileLog) << "Error opening the configuration file";
               }
             char feature_name[MAX_GEVSTRING_LENGTH+1] = {0};
             char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
@@ -374,7 +403,10 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
                     if (status != 0)
                       {
                         error_count++;
-                        printf("WARNING: Error restoring feature %s : with value %s\n", feature_name, value_str);
+                        LOG_WARNING << "Error restoring feature " << feature_name
+                                    << " : with value : " << value_str;
+                        LOG_WARNING_(FileLog) << "Error restoring feature " << feature_name
+                                    << " : with value : " << value_str;
                       }
                     else
                       {
@@ -384,22 +416,30 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
                 else
                   {
                     error_count++;
-                    printf("WARNING: Error restoring feature %s : with value %s\n", feature_name, value_str);
+                    LOG_WARNING << "Error restoring feature " << feature_name
+                                << " : with value : " << value_str;
+                    LOG_WARNING_(FileLog) << "Error restoring feature " << feature_name
+                                << " : with value : " << value_str;
                   }
               }
             if (error_count == 0)
               {
-                printf("DEBUG: %d Features loaded successfully !\n", feature_count);
+                LOG_INFO << feature_count << " Features loaded successfully";
+                LOG_INFO_(FileLog) << feature_count << " Features loaded successfully";
               }
             else
               {
-                printf("INFO: %d Features loaded successfully : %d Features had errors\n", feature_count, error_count);
+                LOG_INFO << feature_count << " Features loaded successfully : "
+                         << error_count << " Features had errors";
+                LOG_INFO_(FileLog) << feature_count << " Features loaded successfully : "
+                         << error_count << " Features had errors";
               }
           }
       }
 
     // End the "streaming feature mode".
-    printf("DEBUG: Ending the streaming mode ... \n");
+    LOG_DEBUG << "Ending the streaming mode";
+    LOG_DEBUG_(FileLog) << "Ending the streaming mode";
     GenApi::CCommandPtr end = Camera->_GetNode("Std::DeviceFeaturePersistenceEnd");
     if ( end  )
       {
@@ -427,6 +467,8 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
             // Iterate through all of the features calling "Get" with validation enabled.
             // Find the standard "Root" node and dump the features.
             GenApi::CNodePtr pRoot = Camera->_GetNode("Root");
+            LOG_DEBUG << "Validating Features set on camera";
+            LOG_DEBUG_(FileLog) << "Validating Features set on camera";
             ValidateFeatureValues( pRoot );
           }
       }
@@ -440,21 +482,30 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
 
 int main(int argc, char* argv[])
 {
+  // Log file appender (fname, fsize<10mbytes>, #backups)
+  static plog::RollingFileAppender<plog::TxtFormatter> fileAppender("/var/log/cuic/teledyneCapture.log", 10000000, 30);
+  // colored logging to console (because, why not!)
+  // If color is not needed, replace by plog::ConsoleAppender
+  static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender;
+  // log to console and to file
+  plog::init(plog::info, &consoleAppender);
+  plog::init<FileLog>(plog::debug, &fileAppender);
+
   GEV_DEVICE_INTERFACE  pCamera[MAX_CAMERAS] = {0};
   UINT16 status;
   int numCamera = 0;
   int camIndex = 0;
-  X_VIEW_HANDLE  View = NULL;
   MY_CONTEXT context = {0};
   pthread_t  tid;
   char c;
   int done = FALSE;
   int turboDriveAvailable = 0;
 
+  LOG_VERBOSE << "Initializing";
+  LOG_VERBOSE_(FileLog) << "Initializing";
   // Greetings
   printf ("\nGigE Vision Library Using Teledyne Dalsa (%s)\n", __DATE__);
   printf ("Copyright (c) 2017, CUSP.\nAll rights reserved.\n\n");
-
   //===================================================================================
   // Set default options for the library.
   {
@@ -471,10 +522,12 @@ int main(int argc, char* argv[])
   // DISCOVER Cameras
   //
   // Get all the IP addresses of attached network cards.
-
+  LOG_VERBOSE << "Discovering Cameras on the network";
+  LOG_VERBOSE_(FileLog) << "Discovering Cameras on the network";
   status = GevGetCameraList( pCamera, MAX_CAMERAS, &numCamera);
 
-  printf ("INFO: %d camera(s) on the network\n", numCamera);
+  LOG_INFO << numCamera <<" camera(s) on the network";
+  LOG_INFO_(FileLog) << numCamera <<" camera(s) on the network";
 
   // Select the first camera found (unless the command line has a parameter = the camera index)
   if (numCamera != 0)
@@ -484,7 +537,8 @@ int main(int argc, char* argv[])
           sscanf(argv[1], "%d", &camIndex);
           if (camIndex >= (int)numCamera)
             {
-              printf("WARNING: Camera index out of range - only %d camera(s) are present\n", numCamera);
+              LOG_WARNING << "Camera index out of range - only " << numCamera << "camera(s) are present\n";
+              LOG_WARNING_(FileLog) << "Camera index out of range - only " << numCamera << "camera(s) are present\n";
               camIndex = -1;
             }
         }
@@ -514,12 +568,15 @@ int main(int argc, char* argv[])
 
           //====================================================================
           // Open the camera.
+          LOG_DEBUG << "Opening the connection to the camera";
+          LOG_DEBUG_(FileLog) << "Opening the connection to the camera";
           status = GevOpenCamera( &pCamera[camIndex], GevExclusiveMode, &handle);
           if (status == 0)
             {
               //=================================================================
               // Initiliaze access to GenICam features via Camera XML File
-
+              LOG_VERBOSE << "Accessing camera XML file for GenICam features";
+              LOG_VERBOSE_(FileLog) << "Accessing camera XML file for GenICam features";
               status = GevInitGenICamXMLFeatures( handle, TRUE);
               if (status == GEVLIB_OK)
                 {
@@ -528,7 +585,8 @@ int main(int argc, char* argv[])
                   status = GevGetGenICamXML_FileName( handle, (int)sizeof(xmlFileName), xmlFileName);
                   if (status == GEVLIB_OK)
                     {
-                      printf("DEBUG: XML stored as %s\n", xmlFileName);
+                      LOG_DEBUG << "XML stored as " << xmlFileName;
+                      LOG_DEBUG_(FileLog) << "XML stored as " << xmlFileName;
                     }
                 }
             }
@@ -549,7 +607,7 @@ int main(int argc, char* argv[])
               camOptions.streamMemoryLimitMax = 64*1024*1024;         // Adjust packet memory buffering limit.
               camOptions.streamPktSize = 9180;                                                        // Adjust the GVSP packet size.
               camOptions.streamPktDelay = 10;                                                       // Add usecs between packets to pace arrival at NIC.
-              
+
               // Assign specific CPUs to threads (affinity) - if required for better performance.
               {
                 int numCpus = _GetNumCpus();
@@ -576,16 +634,18 @@ int main(int argc, char* argv[])
                       const char* filename = "config_fname.csv";
                       const char* store_command = "store";
                       const char* load_command = "load";
-                      printf("INFO: Saving All Features ... \n");
+                      LOG_DEBUG << "Saving All Features";
                       status = CamFeatures(Camera, filename, store_command);
                       if (status != 0){
-                        printf("WARNING: Couldn't save features\n");
+                        LOG_WARNING << "Couldn't save features";
+                        LOG_WARNING_(FileLog) << "Couldn't save features";
                       }
-
-                      printf("INFO: Loading All Features ... \n");
+                      LOG_DEBUG << "Loading All Features ";
+                      LOG_DEBUG_(FileLog) << "Loading All Features ";
                       status = CamFeatures(Camera, filename, load_command);
                       if (status != 0){
-                        printf("WARNING: Couldn't load features\n");
+                        LOG_WARNING << "Couldn't load features";
+                        LOG_WARNING_(FileLog) << "Couldn't load features";
                       }
 
                       // Datatypes of Features
@@ -640,18 +700,15 @@ int main(int argc, char* argv[])
                       //GenApi::CFloatPtr ptrExposureNode = Camera->_GetNode("ExposureTime");
                       ptrFloatNode = Camera->_GetNode("ExposureTime");
                       exposure = (float)ptrFloatNode->GetValue();
-                      printf("Current Exposure: %f\n", exposure);
 
                       // Get Gain
                       //GenApi::CFloatPtr ptrGainNode = Camera->_GetNode("Gain");
                       ptrFloatNode = Camera->_GetNode("Gain");
                       gain = (float)ptrFloatNode->GetValue();
-                      printf("MSS: Gain: %f\n", gain);
 
                       // Get Framerate
                       ptrFloatNode = Camera->_GetNode("AcquisitionFrameRate");
                       framerate = (float)ptrFloatNode->GetValue();
-                      printf("MSS: Framerate: %f\n", framerate);
 
                       // Get AutoExposure Value
                       //ptrEnumNode = Camera->_GetNode("ExposureAuto");
@@ -674,7 +731,21 @@ int main(int argc, char* argv[])
                   //=================================================================
                   // Set up a grab/transfer from this camera
                   //
-                  //printf("Camera ROI set for \n\tHeight = %d\n\tWidth = %d\n\tPixelFormat (val) = 0x%08x\n\tExposure = %f\n", height,width,format,exposure);
+                  LOG_VERBOSE << "Camera ROI set";
+                  LOG_VERBOSE_(FileLog) << "Camera ROI set";
+                  LOG_DEBUG << "Height = " << height;
+                  LOG_DEBUG_(FileLog) << "Height = " << height;
+                  LOG_DEBUG << "Width = " << width;
+                  LOG_DEBUG_(FileLog) << "Width = " << width;
+                  LOG_DEBUG  << "PixelFormat (val) = " << std::hex <<format;
+                  LOG_DEBUG_(FileLog)  << "PixelFormat (val) = " << std::hex <<format;
+                  LOG_DEBUG  << "Exposure = " << exposure;
+                  LOG_DEBUG_(FileLog)  << "Exposure = " << exposure;
+                  LOG_DEBUG  << "Gain = " << gain;
+                  LOG_DEBUG_(FileLog)  << "Gain = " << gain;
+                  LOG_DEBUG  << "Framerate = " << framerate;
+                  LOG_DEBUG_(FileLog)  << "Framerate = " << framerate;
+
                   maxHeight = height;
                   maxWidth = width;
                   maxDepth = GetPixelSizeInBytes(format);
@@ -738,27 +809,34 @@ int main(int argc, char* argv[])
                               GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
                               if (val == 1)
                                 {
-                                  printf("DEBUG: TurboMode Enabled\n");
+                                  LOG_INFO << "TurboMode Enabled";
+                                  LOG_INFO_(FileLog) << "TurboMode Enabled";
                                 }
                               else
                                 {
-                                  printf("DEBUG: TurboMode Disabled\n");
+                                  LOG_INFO << "TurboMode Disabled";
+                                  LOG_INFO_(FileLog) << "TurboMode Disabled";
                                 }
                             }
                           else
                             {
-                              printf("INFO: *** TurboDrive is NOT Available for this device/pixel format combination ***\n");
+                              LOG_WARNING << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
+                              LOG_WARNING_(FileLog) << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
                             }
                         }
 
                       // Stop
                       if ((c == 'S') || (c=='s') || (c == '0'))
                         {
+                          LOG_INFO << "Stopping Image transfer";
+                          LOG_INFO_(FileLog) << "Stopping Image transfer";
                           GevStopImageTransfer(handle);
                         }
                       //Abort
                       if ((c == 'A') || (c=='a'))
                         {
+                          LOG_INFO << "Aborting and discarding the queued buffer(s)";
+                          LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
                           GevAbortImageTransfer(handle);
                         }
                       // Snap N (1 to 9 frames)
@@ -766,16 +844,21 @@ int main(int argc, char* argv[])
                         {
                           for (i = 0; i < numBuffers; i++)
                             {
+                              LOG_VERBOSE << "allocating memory for buffer " << i;
+                              LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
                               memset(bufAddress[i], 0, size);
                             }
-
+                          LOG_DEBUG << "Starting image transfer for " << c << " frames";
+                          LOG_DEBUG_(FileLog) << "Starting image transfer for " << c << " frames";
                           status = GevStartImageTransfer( handle, (UINT32)(c-'0'));
                           if (status != 0) {
-                            printf("WARNING: Error starting grab - 0x%x  or %d\n", status, status);
+                            LOG_WARNING << "Error starting grab - " << std::hex << status;
+                            LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
                           }
                           else
                             {
-                              printf("DEBUG: Started grabbing ... \n");
+                              LOG_DEBUG << "Ready to grab frames \n";
+                              LOG_DEBUG_(FileLog) << "Ready to grab frames \n";
                             }
                         }
                       // Continuous grab.
@@ -783,11 +866,16 @@ int main(int argc, char* argv[])
                         {
                           for (i = 0; i < numBuffers; i++)
                             {
+                              LOG_VERBOSE << "allocating memory for buffer " << i;
+                              LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
                               memset(bufAddress[i], 0, size);
                             }
+                          LOG_DEBUG << "Starting continuous image transfer";
+                          LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
                           status = GevStartImageTransfer( handle, -1);
                           if (status != 0) {
-                            printf("WARNING: Error starting grab - 0x%x  or %d\n", status, status);
+                            LOG_WARNING << "Error starting grab - " << std::hex << status;
+                            LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
                           }
                         }
 
@@ -798,40 +886,51 @@ int main(int argc, char* argv[])
 
                       if ((c == 0x1b) || (c == 'q') || (c == 'Q'))
                         {
+                          LOG_INFO << "Stopping image transfer";
+                          LOG_INFO_(FileLog) << "Stopping image transfer";
                           GevStopImageTransfer(handle);
                           done = TRUE;
                           context.exit = TRUE;
                           pthread_join( tid, NULL);
                         }
                     }
-
+                  LOG_INFO << "Aborting and discarding the queued buffer(s)";
+                  LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
                   GevAbortImageTransfer(handle);
                   status = GevFreeImageTransfer(handle);
                   status = GevSetImageParameters(handle, maxWidth,  maxHeight, x_offset,  y_offset, format);
-                  DestroyDisplayWindow(View);
 
                   status = GevFreeImageTransfer( handle);
 
                   for (i = 0; i < numBuffers; i++)
                     {
+                      LOG_VERBOSE << "Clearing buffer " << i;
+                      LOG_VERBOSE_(FileLog) << "Clearing buffer " << i;
                       free(bufAddress[i]);
                     }
                 }
+              LOG_VERBOSE << "Closing connection to the camera";
+              LOG_VERBOSE_(FileLog) << "Closing connection to the camera";
               GevCloseCamera(&handle);
             }
           else
             {
-              printf("CRITICAL : 0x%0x : opening camera\n", status);
+              LOG_FATAL << "Error opening camera - " << std::hex << status;
+              LOG_FATAL_(FileLog) << "Error opening camera - " << std::hex << status;
             }
         }
     }
-
+  LOG_VERBOSE << "Shutting down the API";
+  LOG_VERBOSE_(FileLog) << "Shutting down the API";
   // Close down the API.
   GevApiUninitialize();
-
+  
+  LOG_VERBOSE << "Closing socket connection";
+  LOG_VERBOSE_(FileLog) << "Closing socket connection";
   // Close socket API
   _CloseSocketAPI ();     // must close API even on error
 
-
+  LOG_INFO << "Connection to the camera closed successfully";
+  LOG_INFO_(FileLog) << "Connection to the camera closed successfully";
   return 0;
 }

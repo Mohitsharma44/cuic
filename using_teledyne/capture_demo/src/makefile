@@ -27,7 +27,7 @@ C_COMPILE_OPTIONS= $(DEBUGFLAGS) -fhosted -Wall -Wno-parentheses -Wno-missing-br
 
 LCLLIBS=  -L$(ARCHLIBDIR) -lpthread -lXext -lX11 -L/usr/local/lib -lGevApi -lCorW32
 
-VPATH= . : ../common
+VPATH= . : ../../common
 
 %.o : %.cpp
 	$(CC) -I. $(INC_PATH) $(CXX_COMPILE_OPTIONS) $(ARCH_OPTIONS) -c $< -o $@

@@ -9,21 +9,13 @@
 #include <fstream>
 #include <iostream>
 
-//using namespace std;
-//using namespace GenICam;
-//using namespace GenApi;
-
 #define MAX_NETIF                                       8
 #define MAX_CAMERAS_PER_NETIF   32
 #define MAX_CAMERAS             (MAX_NETIF * MAX_CAMERAS_PER_NETIF)
-
-
 // Enable/disable buffer FULL/EMPTY handling (cycling)
 #define USE_SYNCHRONOUS_BUFFER_CYCLING  0
-
 // Enable/disable transfer tuning (buffering, timeouts, thread affinity).
 #define TUNE_STREAMING_THREADS 0
-
 // Maximum number of buffers in camera
 #define NUM_BUF 8
 
@@ -34,18 +26,6 @@ std::string stringulate(ValueType v)
   oss << v;
   return oss.str();
 }
-/*
-typedef struct tagMY_CONTEXT
-{
-  X_VIEW_HANDLE     View;
-  GEV_CAMERA_HANDLE camHandle;
-  int                                     depth;
-  int                                     format;
-  void                                    *convertBuffer;
-  BOOL                                    convertFormat;
-  BOOL              exit;
-}MY_CONTEXT, *PMY_CONTEXT;
-*/
 
 typedef struct tagMY_CONTEXT
 {
@@ -467,8 +447,8 @@ int main(int argc, char* argv[])
   int turboDriveAvailable = 0;
 
   // Greetings
-  printf ("\nGigE Vision Library GenICam C++ Example Program (%s)\n", __DATE__);
-  printf ("Copyright (c) 2015, DALSA.\nAll rights reserved.\n\n");
+  printf ("\nGigE Vision Library Using Teledyne Dalsa (%s)\n", __DATE__);
+  printf ("Copyright (c) 2017, CUSP.\nAll rights reserved.\n\n");
 
   //===================================================================================
   // Set default options for the library.
@@ -523,11 +503,6 @@ int main(int argc, char* argv[])
           int numBuffers = NUM_BUF;
           PUINT8 bufAddress[NUM_BUF];
           GEV_CAMERA_HANDLE handle = NULL;
-          UINT32 pixFormat = 0;
-          UINT32 pixDepth = 0;
-          UINT32 pixelOrder = 0;
-          //UINT32 autobright = 0;
-          //UINT32 autoexposure = 0;
           float exposure = 0;
           float gain = 0;
           float framerate = 0;
@@ -564,15 +539,12 @@ int main(int argc, char* argv[])
 
 #if TUNE_STREAMING_THREADS
               // Some tuning can be done here. (see the manual)
-              //camOptions.streamFrame_timeout_ms = 1001;                             // Internal timeout for frame reception.
-              camOptions.streamFrame_timeout_ms = 1001;
+              camOptions.streamFrame_timeout_ms = 1001;                             // Internal timeout for frame reception.
               camOptions.streamNumFramesBuffered = 4;                         // Buffer frames internally.
               camOptions.streamMemoryLimitMax = 64*1024*1024;         // Adjust packet memory buffering limit.
-              //camOptions.streamPktSize = 9180;                                                        // Adjust the GVSP packet size.
-              camOptions.streamPktSize = 9180;
-              //camOptions.streamPktDelay = 10;                                                       // Add usecs between packets to pace arrival at NIC.
-              camOptions.streamPktDelay = 10;
-
+              camOptions.streamPktSize = 9180;                                                        // Adjust the GVSP packet size.
+              camOptions.streamPktDelay = 10;                                                       // Add usecs between packets to pace arrival at NIC.
+              
               // Assign specific CPUs to threads (affinity) - if required for better performance.
               {
                 int numCpus = _GetNumCpus();
@@ -634,13 +606,13 @@ int main(int argc, char* argv[])
                       GenApi::CValuePtr expVal1(pNode);
                       expVal1->FromString("1.0", false);
                       */
-                      
+
 
                       // Set ExposureTime
                       pNode = Camera->_GetNode("ExposureTime");
                       GenApi::CValuePtr expVal(pNode);
                       expVal->FromString("90000.0", false);
-                      
+
                       // Set Framerate
                       pNode = Camera->_GetNode("AcquisitionFrameRate");
                       GenApi::CValuePtr expval2(pNode);

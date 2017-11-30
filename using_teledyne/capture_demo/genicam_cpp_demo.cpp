@@ -34,7 +34,7 @@ std::string stringulate(ValueType v)
   oss << v;
   return oss.str();
 }
-
+/*
 typedef struct tagMY_CONTEXT
 {
   X_VIEW_HANDLE     View;
@@ -43,6 +43,13 @@ typedef struct tagMY_CONTEXT
   int                                     format;
   void                                    *convertBuffer;
   BOOL                                    convertFormat;
+  BOOL              exit;
+}MY_CONTEXT, *PMY_CONTEXT;
+*/
+
+typedef struct tagMY_CONTEXT
+{
+  GEV_CAMERA_HANDLE camHandle;
   BOOL              exit;
 }MY_CONTEXT, *PMY_CONTEXT;
 
@@ -107,27 +114,24 @@ void PrintMenu()
   printf("MISC       : [Q]or[ESC]=end,         [T]=Toggle TurboMode (if available)\n");
 }
 
-void * ImageDisplayThread( void *context)
+void * ImageSaveThread( void *context)
 {
-  MY_CONTEXT *displayContext = (MY_CONTEXT *)context;
+  MY_CONTEXT *saveContext = (MY_CONTEXT *)context;
 
-  if (displayContext != NULL)
+  if (saveContext != NULL)
     {
       unsigned long prev_time = 0;
-      //unsigned long cur_time = 0;
-      //unsigned long deltatime = 0;
       prev_time = us_timer_init();
 
       // While we are still running.
-      while(!displayContext->exit)
+      while(!saveContext->exit)
         {
           GEV_BUFFER_OBJECT *img = NULL;
           GEV_STATUS status = 0;
           PUINT8 imgaddr = NULL;
 
           // Wait for images to be received
-          //status = GevWaitForNextImage(displayContext->camHandle, &img, 1000);
-          status = GevWaitForNextImage(displayContext->camHandle, &img, 1000);
+          status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
           //printf("MSS: WaitForNextImage Status: %d\n", status);
           if ((img != NULL) && (status == GEVLIB_OK))
             {
@@ -144,46 +148,19 @@ void * ImageDisplayThread( void *context)
               fname += stringulate(ms_timer_init());
               fname += ".raw";
               const char* filename = fname.c_str();
+              // Write the image data to file
               std::ofstream ot;
               ot.open(filename, std::ios::out|std::ios::binary);
               ot.write((const char *)imgaddr, img->recv_size);
               ot.flush();
               ot.close();
               //printf("MSS: Image Address: %s", imgaddr);
-              if (img->status == 0)
-                {
-                  printf("DEBUG: Got the image \n");
-                  // Convert the image format if required.
-                  if (displayContext->convertFormat)
-                    {
-                      int gev_depth = GevGetPixelDepthInBits(img->format);
-                      printf("DEBUG: Image Width: %d\n", img->w);
-                      printf("DEBUG:  Height: %d\n", img->h);
-                      // Convert the image to a displayable format.
-                      //(Note : Not all formats can be displayed properly at this time (planar, YUV*, 10/12 bit packed).
-                      ConvertGevImageToX11Format( img->w, img->h, gev_depth, img->format, img->address, \
-                                                  displayContext->depth, displayContext->format, displayContext->convertBuffer);
-
-                      // Display the image in the (supported) converted format.
-                      Display_Image( displayContext->View, displayContext->depth, img->w, img->h, displayContext->convertBuffer );
-                    }
-                  else
-                    {
-                      // Display the image in the (supported) received format.
-                      Display_Image( displayContext->View, img->d,  img->w, img->h, img->address );
-                    }
-                }
-              else
-                {
-                  // Image had an error (incomplete (timeout/overflow/lost)).
-                  // Do any handling of this condition necessary.
-                }
             }
 #if USE_SYNCHRONOUS_BUFFER_CYCLING
           if (img != NULL)
             {
               // Release the buffer back to the image transfer process.
-              GevReleaseImage( displayContext->camHandle, img);
+              GevReleaseImage( saveContext->camHandle, img);
             }
 #endif
         }
@@ -233,7 +210,7 @@ static void OutputFeatureValuePair( const char *feature_name, const char *value_
   if ( (feature_name != NULL)  && (value_string != NULL) )
     {
       // Feature : Value pair output (in one place in to ease changing formats or output method - if desired).
-      fprintf(fp, "%s,%s\n", feature_name, value_string);
+      fprintf(fp, "%s %s\n", feature_name, value_string);
       //printf("%s --> %s\n", feature_name, value_string);
     }
 }
@@ -396,7 +373,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
               }
             char feature_name[MAX_GEVSTRING_LENGTH+1] = {0};
             char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
-            while ( 2 == fscanf(fp, "%s,%s", feature_name, value_str) )
+            while ( 2 == fscanf(fp, "%s %s", feature_name, value_str) )
               {
                 status = 0;
                 // Find node and write the feature string (without validation).
@@ -652,22 +629,23 @@ int main(int argc, char* argv[])
                       //GenApi::CValuePtr autoexpval(pNode);
                       //autoexpval->FromString("0", false);
 
-                      // Set ExposureTime
-                      pNode = Camera->_GetNode("ExposureTime");
-                      GenApi::CValuePtr expVal(pNode);
-                      expVal->FromString("300.0", false);
-
-                      // Set Framerate
-                      pNode = Camera->_GetNode("AcquisitionFrameRate");
-                      GenApi::CValuePtr expval2(pNode);
-                      expval2->FromString("0.3", false);
-
                       // Set Gain -- Will not work with Analog Mode
                       pNode = Camera->_GetNode("Gain");
                       GenApi::CValuePtr expVal1(pNode);
                       expVal1->FromString("1.0", false);
                       */
                       
+
+                      // Set ExposureTime
+                      pNode = Camera->_GetNode("ExposureTime");
+                      GenApi::CValuePtr expVal(pNode);
+                      expVal->FromString("90000.0", false);
+                      
+                      // Set Framerate
+                      pNode = Camera->_GetNode("AcquisitionFrameRate");
+                      GenApi::CValuePtr expval2(pNode);
+                      expval2->FromString("0.3", false);
+
                       // --------- Get Parameters
                       // Get Width and Height
                       //GenApi::CIntegerPtr ptrIntNode = Camera->_GetNode("Width");
@@ -756,66 +734,10 @@ int main(int argc, char* argv[])
                     {
                       // Todo
                     }
-
-                  // Create an image display window.
-                  // This works best for monochrome and RGB. The packed color formats (with Y, U, V, etc..) require conversion.
-                  // Translate the raw pixel format to one suitable for the (limited) Linux display routines.
-                  context.convertFormat = FALSE;
-                  context.convertBuffer = NULL;
-                  pixDepth = GevGetPixelDepthInBits( format);
-                  pixelOrder = GevGetRGBPixelOrder( format);
-                  if (!IsGevPixelTypeX11Displayable(format))
-                    {
-                      printf("WARNING: Not displayable format\n");
-                      // Our X11 functions will not display this image - need to set up to convert it.
-                      if (GevIsPixelTypeRGB(format))
-                        {
-                          // A packed color image - convert to unpacked color (or even Mono if desired).
-#if 1
-                          // Convert to RGB8888.
-                          pixFormat = CORDATA_FORMAT_RGB8888; // Use this for color.
-                          pixDepth = 8*sizeof(UINT32);
-#else
-                          // Convert to MONO.
-                          pixFormat = CORDATA_FORMAT_MONO; // Use this for color.
-                          pixDepth = 10;
-#endif
-                          context.convertFormat = TRUE;
-                          context.format = Convert_SaperaFormat_To_X11( pixFormat);
-                          context.depth = pixDepth;
-                          context.convertBuffer = malloc((maxWidth * maxHeight * ((pixDepth + 7)/8)));
-                        }
-                      else
-                        {
-                          // A packed Mono format.
-                          // It is converted (unpacked) internally during the transfer and becomes displayable.
-                          pixFormat = Convert_GevFormat_To_Sapera(format);
-                          context.format = Convert_SaperaFormat_To_X11( pixFormat);
-                          context.depth = pixDepth;
-                        }
-                    }
-                  else
-                    {
-                      if (GevIsPixelTypeRGB(format))
-                        {
-                          // A native RGB format (not packed).
-                          pixFormat = Convert_GevFormat_To_Sapera(format);
-                          pixDepth *= GetPixelSizeInBytes(format);
-                        }
-                      else
-                        {
-                          // A native mono format (not packed).
-                          pixFormat = Convert_GevFormat_To_Sapera(format);
-                        }
-                    }
-
-                  View = CreateDisplayWindow("GigE-V GenApi Console Demo", TRUE, height, width, pixDepth, pixFormat, FALSE );
-
-                  // Create a thread to receive images from the API and display them.
-                  context.View = View;
+                  // Create a thread to receive images from the API and save them.
                   context.camHandle = handle;
                   context.exit = FALSE;
-                  pthread_create(&tid, NULL, ImageDisplayThread, &context);
+                  pthread_create(&tid, NULL, ImageSaveThread, &context);
 
                   // Call the main command loop or the example.
                   PrintMenu();
@@ -864,7 +786,6 @@ int main(int argc, char* argv[])
                       // Snap N (1 to 9 frames)
                       if ((c >= '1')&&(c<='9'))
                         {
-                          printf("INFO: Saving the image ... \n");
                           for (i = 0; i < numBuffers; i++)
                             {
                               memset(bufAddress[i], 0, size);
@@ -916,11 +837,6 @@ int main(int argc, char* argv[])
                   for (i = 0; i < numBuffers; i++)
                     {
                       free(bufAddress[i]);
-                    }
-                  if (context.convertBuffer != NULL)
-                    {
-                      free(context.convertBuffer);
-                      context.convertBuffer = NULL;
                     }
                 }
               GevCloseCamera(&handle);

@@ -40,18 +40,18 @@ sudo -i
 
 The `common` directory needs to be copied with the source code directory.
 
-The following hierarchy should be maintained (according to current Makefile)
+The following hierarchy should be maintained (according to current CMakefile)
 
 ```
 
 - capture_code
-  | - src
-    | - cpp file
-    | - archdefs.mk
-    | - corenv.h
-    | - Makefile
-  | - include
-    | - plog (for logging)
+  | - cpp file
+  | - archdefs.mk
+  | - corenv.h
+  | - CMakeLists.txt
+  [] - Makefile*
+  | - cmake
+    | - Modules
       | - ...
 - common
   | - GevUtils.c
@@ -60,7 +60,10 @@ The following hierarchy should be maintained (according to current Makefile)
   | - SapX11Util.h
   | - X_Display_utils.c
   | - X_Display_utils.h
-  
+- plog
+  | - <...>.h
+  | - ...
 ```
+> *Only there for historical reference. This Makefile won't build the whole setup. It cannot satisfy all dependencies
 
-Check the `Makefile` for more information
+Check the `CMakeLists.txt` for more information

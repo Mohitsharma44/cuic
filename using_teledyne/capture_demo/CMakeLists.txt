@@ -10,13 +10,26 @@ set (CUIC_VERSION_MINOR 0)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake/Modules")
 add_definitions("-std=c++11")
 
+# Boost and ASIO stuff
+set(Boost_USE_STATIC_LIBS ON)
+set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
+find_package(Boost 1.55 REQUIRED COMPONENTS system)
+
+if(NOT Boost_FOUND)
+  message( FATAL_ERROR "boost must be installed")
+endif()
+
+include_directories(${Boost_INCLUDE_DIRS})
+add_library(asio_handler asiohandler.cpp asiohandler.h)
+target_link_libraries(asio_handler ${Boost_LIBRARIES})
 
 # AMQP-CPP
 include(ExternalProject)
 set(AMQPCPP_ROOT "${CMAKE_CURRENT_BINARY_DIR}/amqpcpp")
 ExternalProject_Add(libamqpcpp
-  URL "https://github.com/CopernicaMarketingSoftware/AMQP-CPP/archive/v2.7.4.tar.gz"
-  URL_MD5 "2DDFF974772F989E9538214AADD81153"
+  URL "https://github.com/CopernicaMarketingSoftware/AMQP-CPP/archive/v2.6.2.tar.gz"
+  URL_MD5 "24316FB610FE2F9B3D1C2EC4CF9001DD"
   CMAKE_ARGS -Wno-dev "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
   INSTALL_DIR ${AMQPCPP_ROOT}
   )
@@ -74,5 +87,5 @@ list(APPEND LIBRARIES ${GAPIS})
 
 # add executable
 add_executable (genicam_cpp_demo genicam_cpp_demo.cpp ${GEVAPILIB} ${Xext} ${X11} ${GAPIS} )
-target_link_libraries(genicam_cpp_demo ${LIBRARIES} common plog)
+target_link_libraries(genicam_cpp_demo ${LIBRARIES} asio_handler common plog)
 add_dependencies(genicam_cpp_demo ${DEPENDENCIES})

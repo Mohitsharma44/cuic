@@ -3,7 +3,7 @@
 #include "tools.h"
 #include "asiohandler.h"
 
-int main(int argc, const char* argv[])
+int main(int argc, char *argv[])
 {
   boost::asio::io_service ioService;
   AsioHandler handler(ioService);
@@ -18,12 +18,24 @@ int main(int argc, const char* argv[])
                                      int msgcount,
                                      int consumercount)
     {
-      int i = 30;
-      AMQP::Envelope env(std::to_string(i));
+      std::string command;
+      if (argc > 1)
+        {
+          std::string arg1(argv[1]);
+          command = arg1;
+        }
+      else
+        {
+          command = "t";
+        }
+      //int i = 30;
+      //AMQP::Envelope env(std::to_string(i));
+      AMQP::Envelope env(command);
       env.setCorrelationID(correlation);
       env.setReplyTo(name);
       channel.publish("","rpc_queue",env);
-      std::cout<<" [x] Requesting fib("<< i <<")";
+      //std::cout<<" [x] Requesting fib("<< i <<")";
+      std::cout<<" [x] Running command: "<< command;
       std::cout<<" ... Correlation Id:"<< correlation << std::endl;
     };
   channel.declareQueue(AMQP::exclusive).onSuccess(callback);

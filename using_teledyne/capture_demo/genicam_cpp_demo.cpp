@@ -14,6 +14,7 @@
 #include <sched.h>
 #include <algorithm>
 #include <fstream>
+#include <mutex>
 // -- Specially for Logging
 #include <plog/Log.h>
 #include <plog/Appenders/ColorConsoleAppender.h>
@@ -32,6 +33,7 @@
 // Maximum number of buffers in camera
 #define NUM_BUF 8
 
+std::once_flag onceFlag;
 
 // Declaring Functions
 int camera_commands(void *context, std::string command);
@@ -539,7 +541,7 @@ int cleanup(MY_CONTEXT *context)
   LOG_VERBOSE << "Closing connection to the camera";
   LOG_VERBOSE_(FileLog) << "Closing connection to the camera";
   GevCloseCamera(&handle);
-  
+
   LOG_VERBOSE << "Shutting down the API";
   LOG_VERBOSE_(FileLog) << "Shutting down the API";
   // Close down the API.
@@ -559,7 +561,7 @@ int cleanup(MY_CONTEXT *context)
 //MY_CONTEXT & initialize_cameras()
 //MY_CONTEXT * initialize_cameras(MY_CONTEXT & context)
 //void initialize_cameras(void *MY_CONTEXT)
-const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context) 
+const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
 {
 
   // Log file appender (fname, fsize<10mbytes>, #backups)
@@ -754,7 +756,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
                   //GenApi::CIntegerPtr ptrIntNode = Camera->_GetNode("Width");
                   ptrIntNode = Camera->_GetNode("Width");
                   width = (UINT32) ptrIntNode->GetValue();
-                  
+
                   ptrIntNode = Camera->_GetNode("Height");
                   height = (UINT32) ptrIntNode->GetValue();
 
@@ -762,7 +764,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
                   //GenApi::CEnumerationPtr ptrEnumNode = Camera->_GetNode("PixelFormat") ;
                   ptrEnumNode = Camera->_GetNode("PixelFormat");
                   format = (UINT32)ptrEnumNode->GetIntValue();
-                  
+
                   // Get ExposureTime
                   //GenApi::CFloatPtr ptrExposureNode = Camera->_GetNode("ExposureTime");
                   ptrFloatNode = Camera->_GetNode("ExposureTime");
@@ -931,8 +933,8 @@ int camera_commands(void *context, std::string command)
   //UINT8 bufAddress = {Commandcontext->bufAddress};
   UINT32 format = 0;
   UINT32 size = IMGSIZE;
-  
-  if (std::stoi(command) == 832040)
+
+  if (std::stoi(command) == 30)
     {
       std::cout << " ~~ This is where  i will execute your commands ~~ " << std::endl;
 
@@ -1043,46 +1045,48 @@ int camera_commands(void *context, std::string command)
 
 int main(int argc, char* argv[])
 {
-  /*
   // -------- AMQP TESTING v2.6.2
   boost::asio::io_service ioService;
   AsioHandler handler(ioService);
   handler.connect("localhost", 5672);
   const char* cuic_command = NULL;
+  MY_CONTEXT cuicContext = {0};
+  initialize_cameras(cuicContext);
 
   AMQP::Connection connection(&handler, AMQP::Login("guest", "guest"), "/");
-
+  
   AMQP::Channel channel(&connection);
   channel.setQos(1);
-
   channel.declareQueue("rpc_queue");
-  channel.consume("").onReceived([&channel](const AMQP::Message &message,
-  uint64_t deliveryTag,
-  bool redelivered)
-  {
-  const auto body = message.message();
-  std::cout<<" [.] fib("<<body<<")";
-  std::cout<<" ... CorId"<<message.correlationID()<<std::endl;
-  //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
-  //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
-  AMQP::Envelope env(std::to_string(camera_commands(&context, body)));
-  env.setCorrelationID(message.correlationID());
-  channel.publish("", message.replyTo(), env);
-  std::cout << "ENV MESSAGE: " << env.message() << std::endl;
-  channel.ack(deliveryTag);
-  });
+  channel.consume("")
+    .onReceived([&channel, &cuicContext](const AMQP::Message &message,
+                                            uint64_t deliveryTag,
+                                            bool redelivered)
+                                 {
+                                   //MY_CONTEXT cuicContext = {0};
+                                   const auto body = message.message();
+                                   //const std::string body = message.message();
+                                   //LOG_INFO << " -- IN MAIN -- " << cuicContext.tid;
+                                   std::cout<<" [.] fib("<<body<<")";
+                                   std::cout<<" ... CorId"<<message.correlationID()<<std::endl;
+                                   //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
+                                   //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
+                                   AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, std::string(body))));
+                                   env.setCorrelationID(message.correlationID());
+                                   channel.publish("", message.replyTo(), env);
+                                   std::cout << "ENV MESSAGE: " << env.message() << std::endl;
+                                   channel.ack(deliveryTag);
+                                 })
+    .onSuccess([&channel](const std::string &consumertag){LOG_WARNING << "On Success";});
 
   std::cout << " [x] Awaiting RPC requests" << std::endl;
   ioService.run();
-  */
-  MY_CONTEXT cuicContext = {0};
-  initialize_cameras(cuicContext);
+  //cleanup(&cuicContext);
   //LOG_WARNING << "Testing in Main .... thread id" << Commandcontext->tid;
-  LOG_INFO << " -- IN MAIN -- " << cuicContext.tid;
+
   //pthread_create(&tid, NULL, ImageSaveThread, &context);
   //while(true){
   //  usleep(100000);
   //}
-  cleanup(&cuicContext);
   return 0;
 }

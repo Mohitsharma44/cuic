@@ -32,6 +32,11 @@
 // Maximum number of buffers in camera
 #define NUM_BUF 8
 
+
+// Declaring Functions
+int camera_commands(void *context, std::string command);
+
+
 // -------- AMQP TESTING
 int fib(int n)
 {
@@ -68,6 +73,7 @@ typedef struct tagMY_CONTEXT
   GEV_CAMERA_HANDLE camHandle;
   pthread_t         tid;
   BOOL              exit;
+  PUINT8            bufAddress[NUM_BUF];
 }MY_CONTEXT, *PMY_CONTEXT;
 
 static unsigned long us_timer_init( void )
@@ -131,6 +137,7 @@ void PrintMenu()
   printf("MISC       : [Q]or[ESC]=end,         [T]=Toggle TurboMode (if available)\n");
 }
 
+//void * ImageSaveThread( void *context)
 void * ImageSaveThread( void *context)
 {
   MY_CONTEXT *saveContext = (MY_CONTEXT *)context;
@@ -139,7 +146,8 @@ void * ImageSaveThread( void *context)
     {
       unsigned long prev_time = 0;
       prev_time = us_timer_init();
-
+      //LOG_FATAL << "... Im here ...";
+      //LOG_FATAL << "My thread Id is: " << saveContext->tid;
       // While we are still running.
       while(!saveContext->exit)
         {
@@ -504,17 +512,19 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
 }
 
 
-int cleanup(void *context)
+int cleanup(MY_CONTEXT *context)
 {
   UINT16 status;
   int numBuffers = NUM_BUF;
-  PUINT8 bufAddress[NUM_BUF];
-  MY_CONTEXT *Cleanupcontext = (MY_CONTEXT *)context;
+  MY_CONTEXT *Cleanupcontext = context;
+  //PUINT8 bufAddress[NUM_BUF] = {Cleanupcontext->&bufAddress};
   GEV_CAMERA_HANDLE handle = Cleanupcontext -> camHandle;
+  LOG_VERBOSE << "Exit Value: " << Cleanupcontext->exit;
+  LOG_VERBOSE << "Thread ID: : " << Cleanupcontext->tid;
   LOG_INFO << "Aborting and discarding the queued buffer(s)";
   LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
   GevAbortImageTransfer(handle);
-  status = GevFreeImageTransfer(handle);
+  //status = GevFreeImageTransfer(handle);
   //status = GevSetImageParameters(handle, maxWidth,  maxHeight, x_offset,  y_offset, format);
 
   status = GevFreeImageTransfer( handle);
@@ -523,9 +533,13 @@ int cleanup(void *context)
     {
       LOG_VERBOSE << "Clearing buffer " << i;
       LOG_VERBOSE_(FileLog) << "Clearing buffer " << i;
-      free(bufAddress[i]);
+      //free(bufAddress[i]);
+      free(Cleanupcontext->bufAddress[i]);
     }
-
+  LOG_VERBOSE << "Closing connection to the camera";
+  LOG_VERBOSE_(FileLog) << "Closing connection to the camera";
+  GevCloseCamera(&handle);
+  
   LOG_VERBOSE << "Shutting down the API";
   LOG_VERBOSE_(FileLog) << "Shutting down the API";
   // Close down the API.
@@ -542,7 +556,10 @@ int cleanup(void *context)
   return 0;
 }
 
-const MY_CONTEXT & initialize_cameras()
+//MY_CONTEXT & initialize_cameras()
+//MY_CONTEXT * initialize_cameras(MY_CONTEXT & context)
+//void initialize_cameras(void *MY_CONTEXT)
+const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context) 
 {
 
   // Log file appender (fname, fsize<10mbytes>, #backups)
@@ -551,12 +568,12 @@ const MY_CONTEXT & initialize_cameras()
   // If color is not needed, replace by plog::ConsoleAppender
   static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender;
   // log to console and to file
-  plog::init(plog::info, &consoleAppender);
+  plog::init(plog::debug, &consoleAppender);
   plog::init<FileLog>(plog::debug, &fileAppender);
 
   GEV_DEVICE_INTERFACE  pCamera[MAX_CAMERAS] = {0};
   UINT16 status;
-  MY_CONTEXT context = {0};
+  //MY_CONTEXT context = {0};
   int numCamera = 0;
   int camIndex = 0;
   pthread_t  tid;
@@ -592,8 +609,6 @@ const MY_CONTEXT & initialize_cameras()
   LOG_INFO_(FileLog) << numCamera <<" camera(s) on the network";
 
   // Select the first camera found (unless the command line has a parameter = the camera index)
-  camIndex = -1;
-
   if (camIndex != -1)
     {
       //====================================================================
@@ -805,7 +820,7 @@ const MY_CONTEXT & initialize_cameras()
               // Allocate image buffers
               size = maxDepth * maxWidth * maxHeight;
 #define IMGSIZE (size)
-              
+
               for (i = 0; i < numBuffers; i++)
                 {
                   bufAddress[i] = (PUINT8)malloc(size);
@@ -840,11 +855,13 @@ const MY_CONTEXT & initialize_cameras()
               context.camHandle = handle;
               context.exit = FALSE;
               context.tid = tid;
+              for (i = 0; i< numBuffers; i++)
+                {
+                  context.bufAddress[i] = bufAddress[i];
+                }
               pthread_create(&tid, NULL, ImageSaveThread, &context);
-
               // Call the main command loop or the example.
               PrintMenu();
-
               /*
                 LOG_INFO << "Aborting and discarding the queued buffer(s)";
                 LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
@@ -889,22 +906,29 @@ const MY_CONTEXT & initialize_cameras()
     LOG_INFO << "Connection to the camera closed successfully";
     LOG_INFO_(FileLog) << "Connection to the camera closed successfully";
   */
-  return context;
+  //int resp = camera_commands(&context, "832040");
+  //LOG_WARNING << "Received response: " << resp;
+  //while(true){
+  //  usleep(10000);
+  //}
+  LOG_FATAL << "DONE";
+  //cleanup(&context);
+  //LOG_FATAL << "context: " << context;
+  //return &context;
 }
-
 
 int camera_commands(void *context, std::string command)
 {
-  LOG_WARNING << "Inside Camera_Commands";
   LOG_INFO << "Command Received is: " << command;
   MY_CONTEXT *Commandcontext = (MY_CONTEXT *)context;
   GEV_CAMERA_HANDLE handle = Commandcontext->camHandle;
   UINT16 status;
-  char c = 'T';
+  char c = '2';
   int i;
   int turboDriveAvailable = 0;
   int numBuffers = NUM_BUF;
-  PUINT8 bufAddress[NUM_BUF];
+  //PUINT8 bufAddress[NUM_BUF];
+  //UINT8 bufAddress = {Commandcontext->bufAddress};
   UINT32 format = 0;
   UINT32 size = IMGSIZE;
   
@@ -963,7 +987,8 @@ int camera_commands(void *context, std::string command)
             {
               LOG_VERBOSE << "allocating memory for buffer " << i;
               LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
-              memset(bufAddress[i], 0, size);
+              //memset(bufAddress[i], 0, size);
+              memset(Commandcontext->bufAddress[i], 0, size);
             }
           LOG_DEBUG << "Starting image transfer for " << c << " frames";
           LOG_DEBUG_(FileLog) << "Starting image transfer for " << c << " frames";
@@ -985,7 +1010,8 @@ int camera_commands(void *context, std::string command)
             {
               LOG_VERBOSE << "allocating memory for buffer " << i;
               LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
-              memset(bufAddress[i], 0, size);
+              //memset(bufAddress[i], 0, size);
+              memset(Commandcontext->bufAddress[i], 0, size);
             }
           LOG_DEBUG << "Starting continuous image transfer";
           LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
@@ -1008,10 +1034,12 @@ int camera_commands(void *context, std::string command)
           GevStopImageTransfer(handle);
           Commandcontext->exit = TRUE;
           pthread_join( Commandcontext->tid, NULL);
+          cleanup(Commandcontext);
         }
     }
   return 0;
 }
+
 
 int main(int argc, char* argv[])
 {
@@ -1047,7 +1075,14 @@ int main(int argc, char* argv[])
   std::cout << " [x] Awaiting RPC requests" << std::endl;
   ioService.run();
   */
-  MY_CONTEXT *Commandcontext = initialize();
-  cleanup(Commandcontext);
+  MY_CONTEXT cuicContext = {0};
+  initialize_cameras(cuicContext);
+  //LOG_WARNING << "Testing in Main .... thread id" << Commandcontext->tid;
+  LOG_INFO << " -- IN MAIN -- " << cuicContext.tid;
+  //pthread_create(&tid, NULL, ImageSaveThread, &context);
+  //while(true){
+  //  usleep(100000);
+  //}
+  cleanup(&cuicContext);
   return 0;
 }

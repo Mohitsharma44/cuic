@@ -2,7 +2,7 @@
     Author: Mohit Sharma
     NYU CUSP Nov 2017
 ***/
-
+#include <set>
 #include <iostream>
 #include <unistd.h>
 #include "stdio.h"
@@ -14,7 +14,6 @@
 #include <sched.h>
 #include <algorithm>
 #include <fstream>
-#include <mutex>
 // -- Specially for Logging
 #include <plog/Log.h>
 #include <plog/Appenders/ColorConsoleAppender.h>
@@ -33,7 +32,16 @@
 // Maximum number of buffers in camera
 #define NUM_BUF 8
 
-std::once_flag onceFlag;
+/*
+  Valid Commands:
+  a = abort the capture
+  ? = return help string
+  t = to check if system supports turbo mode (non functional for now)
+  g = capture forever as fast as possible
+  s = stop acquisition
+  q = close all connections and release the camera
+ */
+std::set<char> VALID_COMMANDS = {'a', '?', 't', 'g', 's', 'q'};
 
 // Declaring Functions
 int camera_commands(void *context, std::string command);
@@ -160,7 +168,7 @@ void * ImageSaveThread( void *context)
           // Wait for images to be received
           status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
           LOG_VERBOSE << "WaitForNextImage Status: " << status;
-          LOG_VERBOSE_(FileLog) << "WaitForNextImage Status: " << status;
+           LOG_VERBOSE_(FileLog) << "WaitForNextImage Status: " << status;
           if ((img != NULL) && (status == GEVLIB_OK))
             {
               LOG_VERBOSE << "Image Status: " << img->status;
@@ -919,13 +927,12 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
   //return &context;
 }
 
-int camera_commands(void *context, std::string command)
+int camera_commands(void *context, char command)
 {
   LOG_INFO << "Command Received is: " << command;
   MY_CONTEXT *Commandcontext = (MY_CONTEXT *)context;
   GEV_CAMERA_HANDLE handle = Commandcontext->camHandle;
   UINT16 status;
-  char c = '2';
   int i;
   int turboDriveAvailable = 0;
   int numBuffers = NUM_BUF;
@@ -934,8 +941,12 @@ int camera_commands(void *context, std::string command)
   UINT32 format = 0;
   UINT32 size = IMGSIZE;
 
-  if (std::stoi(command) == 30)
+  //if (std::stoi(command) == 30)
+  bool command_is_in = VALID_COMMANDS.find(command) != VALID_COMMANDS.end();
+  bool command_is_digit = isdigit(command);
+  if (command_is_in | command_is_digit)
     {
+      char c = command;
       std::cout << " ~~ This is where  i will execute your commands ~~ " << std::endl;
 
       if ((c == 'T') || (c =='t'))
@@ -1038,8 +1049,12 @@ int camera_commands(void *context, std::string command)
           pthread_join( Commandcontext->tid, NULL);
           cleanup(Commandcontext);
         }
+      return 0;
     }
-  return 0;
+  else
+    {
+      return -1;
+    }
 }
 
 
@@ -1071,7 +1086,7 @@ int main(int argc, char* argv[])
                                    std::cout<<" ... CorId"<<message.correlationID()<<std::endl;
                                    //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
                                    //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
-                                   AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, std::string(body))));
+                                   AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, char(body[0]))));
                                    env.setCorrelationID(message.correlationID());
                                    channel.publish("", message.replyTo(), env);
                                    std::cout << "ENV MESSAGE: " << env.message() << std::endl;

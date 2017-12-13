@@ -167,8 +167,6 @@ void * ImageSaveThread( void *context)
 
           // Wait for images to be received
           status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
-          LOG_VERBOSE << "WaitForNextImage Status: " << status;
-           LOG_VERBOSE_(FileLog) << "WaitForNextImage Status: " << status;
           if ((img != NULL) && (status == GEVLIB_OK))
             {
               LOG_VERBOSE << "Image Status: " << img->status;
@@ -207,6 +205,8 @@ void * ImageSaveThread( void *context)
             }
 #endif
         }
+      LOG_WARNING << "Terminating ImgSaveThread";
+      LOG_WARNING_(FileLog) << "Terminating ImgSaveThread";
     }
   pthread_exit(0);
 }
@@ -529,8 +529,6 @@ int cleanup(MY_CONTEXT *context)
   MY_CONTEXT *Cleanupcontext = context;
   //PUINT8 bufAddress[NUM_BUF] = {Cleanupcontext->&bufAddress};
   GEV_CAMERA_HANDLE handle = Cleanupcontext -> camHandle;
-  LOG_VERBOSE << "Exit Value: " << Cleanupcontext->exit;
-  LOG_VERBOSE << "Thread ID: : " << Cleanupcontext->tid;
   LOG_INFO << "Aborting and discarding the queued buffer(s)";
   LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
   GevAbortImageTransfer(handle);
@@ -571,15 +569,6 @@ int cleanup(MY_CONTEXT *context)
 //void initialize_cameras(void *MY_CONTEXT)
 const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
 {
-
-  // Log file appender (fname, fsize<10mbytes>, #backups)
-  static plog::RollingFileAppender<plog::TxtFormatter> fileAppender("/var/log/cuic/teledyneCapture.log", 10000000, 30);
-  // colored logging to console (because, why not!)
-  // If color is not needed, replace by plog::ConsoleAppender
-  static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender;
-  // log to console and to file
-  plog::init(plog::debug, &consoleAppender);
-  plog::init<FileLog>(plog::debug, &fileAppender);
 
   GEV_DEVICE_INTERFACE  pCamera[MAX_CAMERAS] = {0};
   UINT16 status;
@@ -711,6 +700,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
                   const char* store_command = "store";
                   const char* load_command = "load";
                   LOG_DEBUG << "Saving All Features";
+                  LOG_DEBUG_(FileLog) << "Saving All Features";
                   status = CamFeatures(Camera, filename, store_command);
                   if (status != 0){
                     LOG_WARNING << "Couldn't save features";
@@ -736,6 +726,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
                   //pNode = Camera->_GetNode("autoBrightnessMode");
                   //GenApi::CValuePtr autobrightval(pNode);
                   //autobrightval->FromString("0", false);
+
 
                   // Disable auto exposure
                   //pNode = Camera->_GetNode("ExposureAuto");
@@ -921,15 +912,19 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
   //while(true){
   //  usleep(10000);
   //}
-  LOG_FATAL << "DONE";
+  //context.exit = true;
+  //pthread_join( context.tid, NULL);
   //cleanup(&context);
   //LOG_FATAL << "context: " << context;
   //return &context;
+  LOG_VERBOSE << "Initialization succeeded.";
+  LOG_VERBOSE_(FileLog) << "Initialization succeeded.";
 }
 
 int camera_commands(void *context, char command)
 {
   LOG_INFO << "Command Received is: " << command;
+  LOG_INFO_(FileLog) << "Command Received is: " << command;
   MY_CONTEXT *Commandcontext = (MY_CONTEXT *)context;
   GEV_CAMERA_HANDLE handle = Commandcontext->camHandle;
   UINT16 status;
@@ -947,8 +942,6 @@ int camera_commands(void *context, char command)
   if (command_is_in | command_is_digit)
     {
       char c = command;
-      std::cout << " ~~ This is where  i will execute your commands ~~ " << std::endl;
-
       if ((c == 'T') || (c =='t'))
         {
           // See if TurboDrive is available.
@@ -1046,7 +1039,10 @@ int camera_commands(void *context, char command)
           LOG_INFO_(FileLog) << "Stopping image transfer";
           GevStopImageTransfer(handle);
           Commandcontext->exit = TRUE;
-          pthread_join( Commandcontext->tid, NULL);
+          // Joining is crapping out! But the thread has explicit
+          // call to pthread_exit(0) so we are good. Tested.
+          // But this should be looked into.
+          //pthread_join( Commandcontext->tid, NULL);
           cleanup(Commandcontext);
         }
       return 0;
@@ -1060,6 +1056,15 @@ int camera_commands(void *context, char command)
 
 int main(int argc, char* argv[])
 {
+  // Log file appender (fname, fsize<10mbytes>, #backups)
+  static plog::RollingFileAppender<plog::TxtFormatter> fileAppender("/var/log/cuic/teledyneCapture.log", 10000000, 30);
+  // colored logging to console (because, why not!)
+  // If color is not needed, replace by plog::ConsoleAppender
+  static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender;
+  // log to console and to file
+  plog::init(plog::debug, &consoleAppender);
+  plog::init<FileLog>(plog::debug, &fileAppender);
+  
   // -------- AMQP TESTING v2.6.2
   boost::asio::io_service ioService;
   AsioHandler handler(ioService);
@@ -1082,19 +1087,25 @@ int main(int argc, char* argv[])
                                    const auto body = message.message();
                                    //const std::string body = message.message();
                                    //LOG_INFO << " -- IN MAIN -- " << cuicContext.tid;
-                                   std::cout<<" [.] fib("<<body<<")";
-                                   std::cout<<" ... CorId"<<message.correlationID()<<std::endl;
+                                   //std::cout<<" [.] fib("<<body<<")";
+                                   LOG_VERBOSE<<" ... CorId"<<message.correlationID()<<std::endl;
+                                   LOG_VERBOSE_(FileLog)<<" ... CorId"<<message.correlationID()<<std::endl;
                                    //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
                                    //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
                                    AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, char(body[0]))));
                                    env.setCorrelationID(message.correlationID());
                                    channel.publish("", message.replyTo(), env);
-                                   std::cout << "ENV MESSAGE: " << env.message() << std::endl;
+                                   //std::cout << "ENV MESSAGE: " << env.message() << std::endl;
                                    channel.ack(deliveryTag);
                                  })
-    .onSuccess([&channel](const std::string &consumertag){LOG_WARNING << "On Success";});
+    .onSuccess([&channel](const std::string &consumertag){
+        LOG_DEBUG <<"Channel ready for messages";
+        LOG_DEBUG_(FileLog) <<"Channel ready for messages";
+      });
 
-  std::cout << " [x] Awaiting RPC requests" << std::endl;
+  //std::cout << " [x] Awaiting RPC requests" << std::endl;
+  LOG_INFO << " [x] Awaiting RPC requests";
+  LOG_INFO_(FileLog) << " [x] Awaiting RPC requests";
   ioService.run();
   //cleanup(&cuicContext);
   //LOG_WARNING << "Testing in Main .... thread id" << Commandcontext->tid;

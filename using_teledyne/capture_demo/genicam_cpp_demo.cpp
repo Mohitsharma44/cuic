@@ -74,7 +74,7 @@ typedef struct tagMY_CONTEXT
   BOOL                exit;
   PUINT8              bufAddress[NUM_BUF];
   int                 interval;
-  bool                 capture;
+  int                 capture;
   bool                stop;
   bool                status;
 }MY_CONTEXT, *PMY_CONTEXT;
@@ -147,8 +147,7 @@ void * ImageSaveThread( void *context)
 
   if (saveContext != NULL)
     {
-      unsigned long prev_time = 0;
-      prev_time = us_timer_init();
+      int sleep_timer = saveContext->interval != -1 ? saveContext->interval : 0;
       //LOG_FATAL << "... Im here ...";
       //LOG_FATAL << "My thread Id is: " << saveContext->tid;
       // While we are still running.
@@ -197,7 +196,7 @@ void * ImageSaveThread( void *context)
               GevReleaseImage( saveContext->camHandle, img);
             }
 #endif
-          sleep(saveContext->interval);
+          sleep(sleep_timer);
         }
       LOG_WARNING << "Terminating ImgSaveThread";
       LOG_WARNING_(FileLog) << "Terminating ImgSaveThread";
@@ -948,6 +947,21 @@ int camera_commands(void *context, std::string command)
     }
 
   //if (std::stoi(command) == 30)
+  if (Commandcontext->status)
+    {
+      LOG_INFO << "I shall return some status -- " << Commandcontext->status; 
+    }
+
+  if (Commandcontext->stop)
+    {
+      LOG_INFO << "I shall stop the capture -- " << Commandcontext->stop;
+    }
+
+  if (Commandcontext->capture)
+    {
+      LOG_INFO << "I shall start the capture -- " << Commandcontext->capture;
+    }
+  /*
   bool command_is_in = VALID_COMMANDS.find(command[0]) != VALID_COMMANDS.end();
   bool command_is_digit = isdigit(command[0]);
   if (command_is_in | command_is_digit)
@@ -1062,12 +1076,15 @@ int camera_commands(void *context, std::string command)
           //pthread_join( Commandcontext->tid, NULL);
           cleanup(Commandcontext);
         }
-      return 0;
-    }
+ 
+  return 0;
+  }
   else
     {
       return -1;
     }
+  */
+  return 0;
 }
 
 

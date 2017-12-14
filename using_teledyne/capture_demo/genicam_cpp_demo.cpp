@@ -73,7 +73,10 @@ typedef struct tagMY_CONTEXT
   pthread_t           tid;
   BOOL                exit;
   PUINT8              bufAddress[NUM_BUF];
-  int                 sleep_timer;
+  int                 interval;
+  bool                 capture;
+  bool                stop;
+  bool                status;
 }MY_CONTEXT, *PMY_CONTEXT;
 
 static unsigned long us_timer_init( void )
@@ -194,7 +197,7 @@ void * ImageSaveThread( void *context)
               GevReleaseImage( saveContext->camHandle, img);
             }
 #endif
-          sleep(saveContext->sleep_timer);
+          sleep(saveContext->interval);
         }
       LOG_WARNING << "Terminating ImgSaveThread";
       LOG_WARNING_(FileLog) << "Terminating ImgSaveThread";
@@ -913,7 +916,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
   LOG_VERBOSE_(FileLog) << "Initialization succeeded.";
 }
 
-int camera_commands(void *context, char command)
+int camera_commands(void *context, std::string command)
 {
 
   LOG_INFO << "Command Received is: " << command;
@@ -929,24 +932,27 @@ int camera_commands(void *context, char command)
   UINT32 format = 0;
   UINT32 size = IMGSIZE;
 
+  // Explicitly parsing for it to be compatible with new features
+  auto parsed_commands = json::parse(command);
+  Commandcontext->capture = parsed_commands["capture"];
+  Commandcontext->interval = parsed_commands["interval"];
+  Commandcontext->stop = parsed_commands["stop"];
+  Commandcontext->status = parsed_commands["status"];
+  
   if (Commandcontext->Camera)
     {
-      LOG_INFO << "Checking exposure now...";
       float exposure = 0;
       GenApi::CFloatPtr ptrFloatNode = 0;
       ptrFloatNode = Commandcontext->Camera->_GetNode("ExposureTime");
       exposure = (UINT32) ptrFloatNode->GetValue();
-      std::cout << "Exposure " << exposure;
-      LOG_WARNING << "Got Exposure from Context!: " << exposure;
     }
 
-
   //if (std::stoi(command) == 30)
-  bool command_is_in = VALID_COMMANDS.find(command) != VALID_COMMANDS.end();
-  bool command_is_digit = isdigit(command);
+  bool command_is_in = VALID_COMMANDS.find(command[0]) != VALID_COMMANDS.end();
+  bool command_is_digit = isdigit(command[0]);
   if (command_is_in | command_is_digit)
     {
-      char c = command;
+      char c = command[0];
       if ((c == 'T') || (c =='t'))
         {
           // See if TurboDrive is available.
@@ -1040,7 +1046,7 @@ int camera_commands(void *context, char command)
 
       if ((c == 'x') || (c == 'x'))
         {
-          Commandcontext->sleep_timer = 5;
+          Commandcontext->interval = 5;
         }
 
 
@@ -1103,7 +1109,7 @@ int main(int argc, char* argv[])
                   LOG_VERBOSE_(FileLog)<<" ... CorId"<<message.correlationID()<<std::endl;
                   //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
                   //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
-                  AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, char(body[0]))));
+                  AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, std::string(body))));
                   env.setCorrelationID(message.correlationID());
                   channel.publish("", message.replyTo(), env);
                   //std::cout << "ENV MESSAGE: " << env.message() << std::endl;

@@ -21,6 +21,8 @@
 #include <thread>
 #include <chrono>
 #include "asiohandler.h"
+// -- Specially for parsing JSON
+#include "json.hpp"
 
 #define MAX_NETIF                                       8
 #define MAX_CAMERAS_PER_NETIF   32
@@ -32,6 +34,9 @@
 // Maximum number of buffers in camera
 #define NUM_BUF 8
 
+using json = nlohmann::json;
+
+
 /*
   Valid Commands:
   a = abort the capture
@@ -40,28 +45,11 @@
   g = capture forever as fast as possible
   s = stop acquisition
   q = close all connections and release the camera
- */
-std::set<char> VALID_COMMANDS = {'a', '?', 't', 'g', 's', 'q'};
+*/
+std::set<char> VALID_COMMANDS = {'a', '?', 't', 'g', 's', 'q', 'x'};
 
 // Declaring Functions
 int camera_commands(void *context, std::string command);
-
-
-// -------- AMQP TESTING
-int fib(int n)
-{
-  switch (n)
-    {
-    case 0:
-      return 0;
-    case 1:
-      return 1;
-    default:
-      return fib(n - 1) + fib(n - 2);
-    }
-}
-
-// --------
 
 
 // stupid logging enum
@@ -80,10 +68,12 @@ std::string stringulate(ValueType v)
 
 typedef struct tagMY_CONTEXT
 {
-  GEV_CAMERA_HANDLE camHandle;
-  pthread_t         tid;
-  BOOL              exit;
-  PUINT8            bufAddress[NUM_BUF];
+  GenApi::CNodeMapRef *Camera;
+  GEV_CAMERA_HANDLE   camHandle;
+  pthread_t           tid;
+  BOOL                exit;
+  PUINT8              bufAddress[NUM_BUF];
+  int                 sleep_timer;
 }MY_CONTEXT, *PMY_CONTEXT;
 
 static unsigned long us_timer_init( void )
@@ -204,6 +194,7 @@ void * ImageSaveThread( void *context)
               GevReleaseImage( saveContext->camHandle, img);
             }
 #endif
+          sleep(saveContext->sleep_timer);
         }
       LOG_WARNING << "Terminating ImgSaveThread";
       LOG_WARNING_(FileLog) << "Terminating ImgSaveThread";
@@ -853,6 +844,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
               // Todo
               //  }
               // Create a thread to receive images from the API and save them.
+              context.Camera = Camera;
               context.camHandle = handle;
               context.exit = FALSE;
               context.tid = tid;
@@ -923,6 +915,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
 
 int camera_commands(void *context, char command)
 {
+
   LOG_INFO << "Command Received is: " << command;
   LOG_INFO_(FileLog) << "Command Received is: " << command;
   MY_CONTEXT *Commandcontext = (MY_CONTEXT *)context;
@@ -935,6 +928,18 @@ int camera_commands(void *context, char command)
   //UINT8 bufAddress = {Commandcontext->bufAddress};
   UINT32 format = 0;
   UINT32 size = IMGSIZE;
+
+  if (Commandcontext->Camera)
+    {
+      LOG_INFO << "Checking exposure now...";
+      float exposure = 0;
+      GenApi::CFloatPtr ptrFloatNode = 0;
+      ptrFloatNode = Commandcontext->Camera->_GetNode("ExposureTime");
+      exposure = (UINT32) ptrFloatNode->GetValue();
+      std::cout << "Exposure " << exposure;
+      LOG_WARNING << "Got Exposure from Context!: " << exposure;
+    }
+
 
   //if (std::stoi(command) == 30)
   bool command_is_in = VALID_COMMANDS.find(command) != VALID_COMMANDS.end();
@@ -1033,6 +1038,12 @@ int camera_commands(void *context, char command)
           PrintMenu();
         }
 
+      if ((c == 'x') || (c == 'x'))
+        {
+          Commandcontext->sleep_timer = 5;
+        }
+
+
       if ((c == 0x1b) || (c == 'q') || (c == 'Q'))
         {
           LOG_INFO << "Stopping image transfer";
@@ -1064,7 +1075,7 @@ int main(int argc, char* argv[])
   // log to console and to file
   plog::init(plog::debug, &consoleAppender);
   plog::init<FileLog>(plog::debug, &fileAppender);
-  
+
   // -------- AMQP TESTING v2.6.2
   boost::asio::io_service ioService;
   AsioHandler handler(ioService);
@@ -1074,30 +1085,30 @@ int main(int argc, char* argv[])
   initialize_cameras(cuicContext);
 
   AMQP::Connection connection(&handler, AMQP::Login("guest", "guest"), "/");
-  
+
   AMQP::Channel channel(&connection);
   channel.setQos(1);
   channel.declareQueue("rpc_queue");
   channel.consume("")
     .onReceived([&channel, &cuicContext](const AMQP::Message &message,
-                                            uint64_t deliveryTag,
-                                            bool redelivered)
-                                 {
-                                   //MY_CONTEXT cuicContext = {0};
-                                   const auto body = message.message();
-                                   //const std::string body = message.message();
-                                   //LOG_INFO << " -- IN MAIN -- " << cuicContext.tid;
-                                   //std::cout<<" [.] fib("<<body<<")";
-                                   LOG_VERBOSE<<" ... CorId"<<message.correlationID()<<std::endl;
-                                   LOG_VERBOSE_(FileLog)<<" ... CorId"<<message.correlationID()<<std::endl;
-                                   //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
-                                   //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
-                                   AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, char(body[0]))));
-                                   env.setCorrelationID(message.correlationID());
-                                   channel.publish("", message.replyTo(), env);
-                                   //std::cout << "ENV MESSAGE: " << env.message() << std::endl;
-                                   channel.ack(deliveryTag);
-                                 })
+                                         uint64_t deliveryTag,
+                                         bool redelivered)
+                {
+                  //MY_CONTEXT cuicContext = {0};
+                  const auto body = message.message();
+                  //const std::string body = message.message();
+                  //LOG_INFO << " -- IN MAIN -- " << cuicContext.tid;
+                  //std::cout<<" [.] fib("<<body<<")";
+                  LOG_VERBOSE<<" ... CorId"<<message.correlationID()<<std::endl;
+                  LOG_VERBOSE_(FileLog)<<" ... CorId"<<message.correlationID()<<std::endl;
+                  //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
+                  //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
+                  AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, char(body[0]))));
+                  env.setCorrelationID(message.correlationID());
+                  channel.publish("", message.replyTo(), env);
+                  //std::cout << "ENV MESSAGE: " << env.message() << std::endl;
+                  channel.ack(deliveryTag);
+                })
     .onSuccess([&channel](const std::string &consumertag){
         LOG_DEBUG <<"Channel ready for messages";
         LOG_DEBUG_(FileLog) <<"Channel ready for messages";
@@ -1114,5 +1125,6 @@ int main(int argc, char* argv[])
   //while(true){
   //  usleep(100000);
   //}
+
   return 0;
 }

@@ -50,7 +50,7 @@ std::set<char> VALID_COMMANDS = {'a', '?', 't', 'g', 's', 'q', 'x'};
 
 // Declaring Functions
 int camera_commands(void *context, std::string command);
-
+void killself(void);
 
 // stupid logging enum
 enum // Define log instances. Default is 0 and is omitted from this enum.
@@ -937,14 +937,35 @@ int camera_commands(void *context, std::string command)
   Commandcontext->interval = parsed_commands["interval"];
   Commandcontext->stop = parsed_commands["stop"];
   Commandcontext->status = parsed_commands["status"];
-
-  if (parsed_commands["exposure"] != -1){
+  std::string kill = parsed_commands["kill"];
+  UINT32 exposure = parsed_commands["exposure"];
+  
+  if (kill == "uoadmin")
+    {
+      LOG_FATAL << "Received authorized Temination Command";
+      LOG_FATAL_(FileLog) << "Received authorized Temination Command";
+      cleanup(Commandcontext);
+      sleep(2);
+      killself();
+    }
+  
+  if (exposure != -1){
+    // Change the exposure of the camera
     if (Commandcontext->Camera)
       {
-        float exposure = 0;
+        char feature_name[MAX_GEVSTRING_LENGTH+1] = "ExposureTime";
+        char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
+        std::sprintf(value_str, "%d", exposure);
+        std::cout << value_str << std::endl;
+        float new_exposure = 0;
+        GenApi::CNodePtr pNode = Commandcontext->Camera->_GetNode(feature_name);
+        GenApi::CValuePtr expVal(pNode);
         GenApi::CFloatPtr ptrFloatNode = 0;
-        ptrFloatNode = Commandcontext->Camera->_GetNode("ExposureTime");
-        exposure = (UINT32) ptrFloatNode->GetValue();
+        expVal->FromString(value_str, false);
+        ptrFloatNode = Commandcontext->Camera->_GetNode(feature_name);
+        new_exposure = (UINT32) ptrFloatNode->GetValue();
+        LOG_INFO << "New Exposure: " << new_exposure;
+        LOG_INFO_(FileLog) << "New Exposure: " << new_exposure;
       }
   }
 
@@ -1137,6 +1158,11 @@ int camera_commands(void *context, std::string command)
   return 0;
 }
 
+void killself()
+{
+  LOG_FATAL << "Quitting Now";
+  exit(0);
+}
 
 int main(int argc, char* argv[])
 {

@@ -147,7 +147,6 @@ void * ImageSaveThread( void *context)
 
   if (saveContext != NULL)
     {
-      int sleep_timer = saveContext->interval != -1 ? saveContext->interval : 0;
       //LOG_FATAL << "... Im here ...";
       //LOG_FATAL << "My thread Id is: " << saveContext->tid;
       // While we are still running.
@@ -156,7 +155,6 @@ void * ImageSaveThread( void *context)
           GEV_BUFFER_OBJECT *img = NULL;
           GEV_STATUS status = 0;
           PUINT8 imgaddr = NULL;
-
           // Wait for images to be received
           status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
           if ((img != NULL) && (status == GEVLIB_OK))
@@ -196,11 +194,13 @@ void * ImageSaveThread( void *context)
               GevReleaseImage( saveContext->camHandle, img);
             }
 #endif
-          sleep(sleep_timer);
+          sleep(saveContext->interval);
         }
       LOG_WARNING << "Terminating ImgSaveThread";
       LOG_WARNING_(FileLog) << "Terminating ImgSaveThread";
     }
+  LOG_WARNING << "Thread " << saveContext->tid << " is exiting";
+  LOG_WARNING_(FileLog) << "Thread " << saveContext->tid << " is exiting";
   pthread_exit(0);
 }
 
@@ -937,83 +937,35 @@ int camera_commands(void *context, std::string command)
   Commandcontext->interval = parsed_commands["interval"];
   Commandcontext->stop = parsed_commands["stop"];
   Commandcontext->status = parsed_commands["status"];
-  
-  if (Commandcontext->Camera)
-    {
-      float exposure = 0;
-      GenApi::CFloatPtr ptrFloatNode = 0;
-      ptrFloatNode = Commandcontext->Camera->_GetNode("ExposureTime");
-      exposure = (UINT32) ptrFloatNode->GetValue();
-    }
+
+  if (parsed_commands["exposure"] != -1){
+    if (Commandcontext->Camera)
+      {
+        float exposure = 0;
+        GenApi::CFloatPtr ptrFloatNode = 0;
+        ptrFloatNode = Commandcontext->Camera->_GetNode("ExposureTime");
+        exposure = (UINT32) ptrFloatNode->GetValue();
+      }
+  }
 
   //if (std::stoi(command) == 30)
   if (Commandcontext->status)
     {
-      LOG_INFO << "I shall return some status -- " << Commandcontext->status; 
+      LOG_INFO << "I shall return some status -- " << Commandcontext->status;
     }
 
   if (Commandcontext->stop)
     {
-      LOG_INFO << "I shall stop the capture -- " << Commandcontext->stop;
+      LOG_INFO << "Stopping Image transfer";
+      LOG_INFO_(FileLog) << "Stopping Image transfer";
+      GevStopImageTransfer(handle);
     }
 
   if (Commandcontext->capture)
     {
-      LOG_INFO << "I shall start the capture -- " << Commandcontext->capture;
-    }
-  /*
-  bool command_is_in = VALID_COMMANDS.find(command[0]) != VALID_COMMANDS.end();
-  bool command_is_digit = isdigit(command[0]);
-  if (command_is_in | command_is_digit)
-    {
-      char c = command[0];
-      if ((c == 'T') || (c =='t'))
+      if (Commandcontext->capture > 0)
         {
-          // See if TurboDrive is available.
-          turboDriveAvailable = IsTurboDriveAvailable(handle);
-          if (turboDriveAvailable)
-            {
-              int type;
-              UINT32 val = 1;
-              GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
-              val = (val == 0) ? 1 : 0;
-              GevSetFeatureValue(handle, "transferTurboMode", sizeof(UINT32), &val);
-              GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
-              if (val == 1)
-                {
-                  LOG_INFO << "TurboMode Enabled";
-                  LOG_INFO_(FileLog) << "TurboMode Enabled";
-                }
-              else
-                {
-                  LOG_INFO << "TurboMode Disabled";
-                  LOG_INFO_(FileLog) << "TurboMode Disabled";
-                }
-            }
-          else
-            {
-              LOG_WARNING << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
-              LOG_WARNING_(FileLog) << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
-            }
-        }
-
-      // Stop
-      if ((c == 'S') || (c =='s') || (c  == '0'))
-        {
-          LOG_INFO << "Stopping Image transfer";
-          LOG_INFO_(FileLog) << "Stopping Image transfer";
-          GevStopImageTransfer(handle);
-        }
-      //Abort
-      if ((c == 'A') || (c =='a'))
-        {
-          LOG_INFO << "Aborting and discarding the queued buffer(s)";
-          LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
-          GevAbortImageTransfer(handle);
-        }
-      // Snap N (1 to 9 frames)
-      if ((c >= '1')&&(c <='9'))
-        {
+          int c = Commandcontext->capture;
           for (i = 0; i < numBuffers; i++)
             {
               LOG_VERBOSE << "allocating memory for buffer " << i;
@@ -1021,9 +973,10 @@ int camera_commands(void *context, std::string command)
               //memset(bufAddress[i], 0, size);
               memset(Commandcontext->bufAddress[i], 0, size);
             }
+          Commandcontext->exit = false;
           LOG_DEBUG << "Starting image transfer for " << c << " frames";
           LOG_DEBUG_(FileLog) << "Starting image transfer for " << c << " frames";
-          status = GevStartImageTransfer( handle, (UINT32)(c-'0'));
+          status = GevStartImageTransfer( handle, (UINT32)(c));
           if (status != 0) {
             LOG_WARNING << "Error starting grab - " << std::hex << status;
             LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
@@ -1034,8 +987,7 @@ int camera_commands(void *context, std::string command)
               LOG_DEBUG_(FileLog) << "Ready to grab frames \n";
             }
         }
-      // Continuous grab.
-      if ((c == 'G') || (c =='g'))
+      else if (Commandcontext->capture == -1)
         {
           for (i = 0; i < numBuffers; i++)
             {
@@ -1044,6 +996,7 @@ int camera_commands(void *context, std::string command)
               //memset(bufAddress[i], 0, size);
               memset(Commandcontext->bufAddress[i], 0, size);
             }
+          Commandcontext->exit = false;
           LOG_DEBUG << "Starting continuous image transfer";
           LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
           status = GevStartImageTransfer( handle, -1);
@@ -1052,36 +1005,133 @@ int camera_commands(void *context, std::string command)
             LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
           }
         }
-
-      if (c == '?')
+      else
         {
-          PrintMenu();
+          LOG_WARNING << "There is no point in saving 0 images :/ ";
+          return -1;
         }
-
-      if ((c == 'x') || (c == 'x'))
-        {
-          Commandcontext->interval = 5;
-        }
-
-
-      if ((c == 0x1b) || (c == 'q') || (c == 'Q'))
-        {
-          LOG_INFO << "Stopping image transfer";
-          LOG_INFO_(FileLog) << "Stopping image transfer";
-          GevStopImageTransfer(handle);
-          Commandcontext->exit = TRUE;
-          // Joining is crapping out! But the thread has explicit
-          // call to pthread_exit(0) so we are good. Tested.
-          // But this should be looked into.
-          //pthread_join( Commandcontext->tid, NULL);
-          cleanup(Commandcontext);
-        }
- 
-  return 0;
-  }
-  else
+    }
+  /*
+    bool command_is_in = VALID_COMMANDS.find(command[0]) != VALID_COMMANDS.end();
+    bool command_is_digit = isdigit(command[0]);
+    if (command_is_in | command_is_digit)
     {
-      return -1;
+    char c = command[0];
+    if ((c == 'T') || (c =='t'))
+    {
+    // See if TurboDrive is available.
+    turboDriveAvailable = IsTurboDriveAvailable(handle);
+    if (turboDriveAvailable)
+    {
+    int type;
+    UINT32 val = 1;
+    GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
+    val = (val == 0) ? 1 : 0;
+    GevSetFeatureValue(handle, "transferTurboMode", sizeof(UINT32), &val);
+    GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
+    if (val == 1)
+    {
+    LOG_INFO << "TurboMode Enabled";
+    LOG_INFO_(FileLog) << "TurboMode Enabled";
+    }
+    else
+    {
+    LOG_INFO << "TurboMode Disabled";
+    LOG_INFO_(FileLog) << "TurboMode Disabled";
+    }
+    }
+    else
+    {
+    LOG_WARNING << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
+    LOG_WARNING_(FileLog) << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
+    }
+    }
+
+    // Stop
+    if ((c == 'S') || (c =='s') || (c  == '0'))
+    {
+    LOG_INFO << "Stopping Image transfer";
+    LOG_INFO_(FileLog) << "Stopping Image transfer";
+    GevStopImageTransfer(handle);
+    }
+    //Abort
+    if ((c == 'A') || (c =='a'))
+    {
+    LOG_INFO << "Aborting and discarding the queued buffer(s)";
+    LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
+    GevAbortImageTransfer(handle);
+    }
+    // Snap N (1 to 9 frames)
+    if ((c >= '1')&&(c <='9'))
+    {
+    for (i = 0; i < numBuffers; i++)
+    {
+    LOG_VERBOSE << "allocating memory for buffer " << i;
+    LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
+    //memset(bufAddress[i], 0, size);
+    memset(Commandcontext->bufAddress[i], 0, size);
+    }
+    LOG_DEBUG << "Starting image transfer for " << c << " frames";
+    LOG_DEBUG_(FileLog) << "Starting image transfer for " << c << " frames";
+    status = GevStartImageTransfer( handle, (UINT32)(c-'0'));
+    if (status != 0) {
+    LOG_WARNING << "Error starting grab - " << std::hex << status;
+    LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
+    }
+    else
+    {
+    LOG_DEBUG << "Ready to grab frames \n";
+    LOG_DEBUG_(FileLog) << "Ready to grab frames \n";
+    }
+    }
+    // Continuous grab.
+    if ((c == 'G') || (c =='g'))
+    {
+    for (i = 0; i < numBuffers; i++)
+    {
+    LOG_VERBOSE << "allocating memory for buffer " << i;
+    LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
+    //memset(bufAddress[i], 0, size);
+    memset(Commandcontext->bufAddress[i], 0, size);
+    }
+    LOG_DEBUG << "Starting continuous image transfer";
+    LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
+    status = GevStartImageTransfer( handle, -1);
+    if (status != 0) {
+    LOG_WARNING << "Error starting grab - " << std::hex << status;
+    LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
+    }
+    }
+
+    if (c == '?')
+    {
+    PrintMenu();
+    }
+
+    if ((c == 'x') || (c == 'x'))
+    {
+    Commandcontext->interval = 5;
+    }
+
+
+    if ((c == 0x1b) || (c == 'q') || (c == 'Q'))
+    {
+    LOG_INFO << "Stopping image transfer";
+    LOG_INFO_(FileLog) << "Stopping image transfer";
+    GevStopImageTransfer(handle);
+    Commandcontext->exit = TRUE;
+    // Joining is crapping out! But the thread has explicit
+    // call to pthread_exit(0) so we are good. Tested.
+    // But this should be looked into.
+    //pthread_join( Commandcontext->tid, NULL);
+    cleanup(Commandcontext);
+    }
+
+    return 0;
+    }
+    else
+    {
+    return -1;
     }
   */
   return 0;

@@ -5,6 +5,7 @@
 #include <set>
 #include <iostream>
 #include <unistd.h>
+#include <cstdlib>
 #include "stdio.h"
 #include "cordef.h"
 #include "GenApi/GenApi.h"              //!< GenApi lib definitions.
@@ -77,6 +78,7 @@ typedef struct tagMY_CONTEXT
   int                 capture;
   bool                stop;
   bool                status;
+  std::string         location; 
 }MY_CONTEXT, *PMY_CONTEXT;
 
 static unsigned long us_timer_init( void )
@@ -174,7 +176,14 @@ void * ImageSaveThread( void *context)
               LOG_VERBOSE << "Buffer Format: " << std::hex << img->format;
               LOG_VERBOSE_(FileLog) << "Buffer Format: " << std::hex << img->format;
               imgaddr = img->address;
-              std::string fname = "test-";
+              //$mtc_vis_dir/$location/live/$location-$timestamp.raw
+              std::string fname = std::getenv("mtc_vis_dir");
+              fname += "/";
+              fname += saveContext->location;
+              fname += "/live";
+              fname +="/";
+              fname += saveContext->location;
+              fname += "-";
               fname += stringulate(ms_timer_init());
               fname += ".raw";
               const char* filename = fname.c_str();
@@ -389,7 +398,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
       {
         if (strcmp(command, "store") == 0)
           {
-            // Opening file to dump all the features
+             // Opening file to dump all the features
             if (filename == NULL)
               {
                 fp = stdout;
@@ -420,7 +429,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
                 LOG_FATAL_(FileLog) << "Error opening the configuration file";
               }
             char feature_name[MAX_GEVSTRING_LENGTH+1] = {0};
-            char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
+             char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
             while ( 2 == fscanf(fp, "%s %s", feature_name, value_str) )
               {
                 status = 0;
@@ -476,7 +485,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
     LOG_DEBUG_(FileLog) << "Ending the streaming mode";
     GenApi::CCommandPtr end = Camera->_GetNode("Std::DeviceFeaturePersistenceEnd");
     if ( end  )
-      {
+      { 
         try {
           int done = FALSE;
           int timeout = 5;
@@ -569,7 +578,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
   int numCamera = 0;
   int camIndex = 0;
   pthread_t  tid;
-  int done = FALSE;
+  int done = FALSE; 
   int turboDriveAvailable = 0;
 
   LOG_VERBOSE << "Initializing";
@@ -937,6 +946,7 @@ int camera_commands(void *context, std::string command)
   Commandcontext->interval = parsed_commands["interval"];
   Commandcontext->stop = parsed_commands["stop"];
   Commandcontext->status = parsed_commands["status"];
+  Commandcontext->location = parsed_commands["location"];
   std::string kill = parsed_commands["kill"];
   UINT32 exposure = parsed_commands["exposure"];
   
@@ -1178,16 +1188,18 @@ int main(int argc, char* argv[])
   // -------- AMQP TESTING v2.6.2
   boost::asio::io_service ioService;
   AsioHandler handler(ioService);
-  handler.connect("localhost", 5672);
+  handler.connect(std::getenv("rpc_server"), std::stoi(std::getenv("rpc_port")));
   const char* cuic_command = NULL;
   MY_CONTEXT cuicContext = {0};
   initialize_cameras(cuicContext);
 
-  AMQP::Connection connection(&handler, AMQP::Login("guest", "guest"), "/");
+  AMQP::Connection connection(&handler,
+                              AMQP::Login(std::getenv("rpc_user"), std::getenv("rpc_pass")),
+                              "/vis");
 
   AMQP::Channel channel(&connection);
   channel.setQos(1);
-  channel.declareQueue("rpc_queue");
+  channel.declareQueue("1mtcSouth_vis_queue");
   channel.consume("")
     .onReceived([&channel, &cuicContext](const AMQP::Message &message,
                                          uint64_t deliveryTag,

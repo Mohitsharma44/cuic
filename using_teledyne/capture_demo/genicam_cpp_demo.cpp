@@ -50,7 +50,7 @@ using json = nlohmann::json;
 std::set<char> VALID_COMMANDS = {'a', '?', 't', 'g', 's', 'q', 'x'};
 
 // Declaring Functions
-int camera_commands(void *context, std::string command);
+std::string camera_commands(void *context, std::string command);
 void killself(void);
 
 // stupid logging enum
@@ -78,7 +78,10 @@ typedef struct tagMY_CONTEXT
   int                 capture;
   bool                stop;
   bool                status;
-  std::string         location; 
+  std::string         location;
+  std::string         recent_error;
+  std::string         msg;
+  long int            frames_captured;
 }MY_CONTEXT, *PMY_CONTEXT;
 
 static unsigned long us_timer_init( void )
@@ -195,6 +198,7 @@ void * ImageSaveThread( void *context)
               ot.write((const char *)imgaddr, img->recv_size);
               ot.flush();
               ot.close();
+              saveContext->frames_captured += 1;
             }
 #if USE_SYNCHRONOUS_BUFFER_CYCLING
           if (img != NULL)
@@ -398,7 +402,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
       {
         if (strcmp(command, "store") == 0)
           {
-             // Opening file to dump all the features
+            // Opening file to dump all the features
             if (filename == NULL)
               {
                 fp = stdout;
@@ -429,7 +433,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
                 LOG_FATAL_(FileLog) << "Error opening the configuration file";
               }
             char feature_name[MAX_GEVSTRING_LENGTH+1] = {0};
-             char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
+            char value_str[MAX_GEVSTRING_LENGTH+1] = {0};
             while ( 2 == fscanf(fp, "%s %s", feature_name, value_str) )
               {
                 status = 0;
@@ -485,7 +489,7 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
     LOG_DEBUG_(FileLog) << "Ending the streaming mode";
     GenApi::CCommandPtr end = Camera->_GetNode("Std::DeviceFeaturePersistenceEnd");
     if ( end  )
-      { 
+      {
         try {
           int done = FALSE;
           int timeout = 5;
@@ -578,7 +582,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
   int numCamera = 0;
   int camIndex = 0;
   pthread_t  tid;
-  int done = FALSE; 
+  int done = FALSE;
   int turboDriveAvailable = 0;
 
   LOG_VERBOSE << "Initializing";
@@ -859,6 +863,9 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
               context.camHandle = handle;
               context.exit = FALSE;
               context.tid = tid;
+              context.msg = "";
+              context.recent_error = "";
+              context.frames_captured = 0;
               for (i = 0; i< numBuffers; i++)
                 {
                   context.bufAddress[i] = bufAddress[i];
@@ -924,9 +931,8 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
   LOG_VERBOSE_(FileLog) << "Initialization succeeded.";
 }
 
-int camera_commands(void *context, std::string command)
+std::string camera_commands(void *context, std::string command)
 {
-
   LOG_INFO << "Command Received is: " << command;
   LOG_INFO_(FileLog) << "Command Received is: " << command;
   MY_CONTEXT *Commandcontext = (MY_CONTEXT *)context;
@@ -949,7 +955,17 @@ int camera_commands(void *context, std::string command)
   Commandcontext->location = parsed_commands["location"];
   std::string kill = parsed_commands["kill"];
   UINT32 exposure = parsed_commands["exposure"];
-  
+
+  auto get_exposure = [Commandcontext]()
+    {
+      char feature_name[MAX_GEVSTRING_LENGTH+1] = "ExposureTime";
+      float exposure = 0;
+      GenApi::CFloatPtr ptrFloatNode = 0;
+      ptrFloatNode = Commandcontext->Camera->_GetNode(feature_name);
+      exposure = (UINT32) ptrFloatNode->GetValue();
+      return exposure;
+    };
+
   if (kill == "uoadmin")
     {
       LOG_FATAL << "Received authorized Temination Command";
@@ -958,7 +974,7 @@ int camera_commands(void *context, std::string command)
       sleep(2);
       killself();
     }
-  
+
   if (exposure != -1){
     // Change the exposure of the camera
     if (Commandcontext->Camera)
@@ -982,7 +998,14 @@ int camera_commands(void *context, std::string command)
   //if (std::stoi(command) == 30)
   if (Commandcontext->status)
     {
-      LOG_INFO << "I shall return some status -- " << Commandcontext->status;
+      json status_resp;
+      status_resp["capture"] = Commandcontext->capture;
+      status_resp["interval"] = Commandcontext->interval;
+      status_resp["exposure"] = get_exposure();
+      status_resp["frames_captured"] = Commandcontext->frames_captured;
+      status_resp["msg"] = Commandcontext->msg;
+      status_resp["recent_error"] = Commandcontext->recent_error;
+      return status_resp.dump();
     }
 
   if (Commandcontext->stop)
@@ -1007,8 +1030,10 @@ int camera_commands(void *context, std::string command)
           Commandcontext->exit = false;
           LOG_DEBUG << "Starting image transfer for " << c << " frames";
           LOG_DEBUG_(FileLog) << "Starting image transfer for " << c << " frames";
+          Commandcontext->frames_captured = 0;
           status = GevStartImageTransfer( handle, (UINT32)(c));
           if (status != 0) {
+            Commandcontext->recent_error = "Error starting grab - ";
             LOG_WARNING << "Error starting grab - " << std::hex << status;
             LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
           }
@@ -1030,8 +1055,10 @@ int camera_commands(void *context, std::string command)
           Commandcontext->exit = false;
           LOG_DEBUG << "Starting continuous image transfer";
           LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
+          Commandcontext->frames_captured = 0;
           status = GevStartImageTransfer( handle, -1);
           if (status != 0) {
+            Commandcontext->recent_error = "Error starting grab - ";
             LOG_WARNING << "Error starting grab - " << std::hex << status;
             LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
           }
@@ -1039,7 +1066,7 @@ int camera_commands(void *context, std::string command)
       else
         {
           LOG_WARNING << "There is no point in saving 0 images :/ ";
-          return -1;
+          return "-1";
         }
     }
   /*
@@ -1165,7 +1192,7 @@ int camera_commands(void *context, std::string command)
     return -1;
     }
   */
-  return 0;
+  return "0";
 }
 
 void killself()
@@ -1214,7 +1241,7 @@ int main(int argc, char* argv[])
                   LOG_VERBOSE_(FileLog)<<" ... CorId"<<message.correlationID()<<std::endl;
                   //AMQP::Envelope env(std::to_string(fib(std::stoi(body))));
                   //AMQP::Envelope env(std::to_string(camera_commands(std::to_string(fib(std::stoi(body))))));
-                  AMQP::Envelope env(std::to_string(camera_commands(&cuicContext, std::string(body))));
+                  AMQP::Envelope env(camera_commands(&cuicContext, std::string(body)));
                   env.setCorrelationID(message.correlationID());
                   channel.publish("", message.replyTo(), env);
                   //std::cout << "ENV MESSAGE: " << env.message() << std::endl;

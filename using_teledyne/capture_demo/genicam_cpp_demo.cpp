@@ -162,7 +162,8 @@ void * ImageSaveThread( void *context)
           PUINT8 imgaddr = NULL;
           // Wait for images to be received
           status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
-          if ((img != NULL) && (status == GEVLIB_OK))
+          if ((saveContext->capture != 0) && (saveContext->interval > 0) &&
+              (img != NULL) && (status == GEVLIB_OK))
             {
               LOG_VERBOSE << "Image Status: " << img->status;
               LOG_VERBOSE_(FileLog) << "Image Status: " << img->status;
@@ -199,6 +200,14 @@ void * ImageSaveThread( void *context)
               ot.flush();
               ot.close();
               saveContext->frames_captured += 1;
+              if (saveContext->capture > 0){
+                saveContext->capture -= 1;
+                if (saveContext->capture == 0) {
+                  LOG_DEBUG << "Stopping Image transfer";
+                  LOG_DEBUG_(FileLog) << "Stopping Image transfer";
+                  GevStopImageTransfer( saveContext->camHandle );
+                }
+              }
             }
 #if USE_SYNCHRONOUS_BUFFER_CYCLING
           if (img != NULL)
@@ -869,6 +878,9 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
               for (i = 0; i< numBuffers; i++)
                 {
                   context.bufAddress[i] = bufAddress[i];
+                  LOG_VERBOSE << "allocating memory for buffer " << i;
+                  LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
+                  memset(context.bufAddress[i], 0, size);
                 }
               pthread_create(&tid, NULL, ImageSaveThread, &context);
               // Call the main command loop or the example.
@@ -948,11 +960,11 @@ std::string camera_commands(void *context, std::string command)
 
   // Explicitly parsing for it to be compatible with new features
   auto parsed_commands = json::parse(command);
-  Commandcontext->capture = parsed_commands["capture"];
-  Commandcontext->interval = parsed_commands["interval"];
+  //Commandcontext->capture = parsed_commands["capture"];
   Commandcontext->stop = parsed_commands["stop"];
   Commandcontext->status = parsed_commands["status"];
   Commandcontext->location = parsed_commands["location"];
+  //Commandcontext->interval = parsed_commands["interval"];
   std::string kill = parsed_commands["kill"];
   UINT32 exposure = parsed_commands["exposure"];
 
@@ -965,6 +977,11 @@ std::string camera_commands(void *context, std::string command)
       exposure = (UINT32) ptrFloatNode->GetValue();
       return exposure;
     };
+
+  if (parsed_commands["interval"] > 0)
+    {
+      Commandcontext->interval = parsed_commands["interval"];
+    }
 
   if (kill == "uoadmin")
     {
@@ -1012,193 +1029,50 @@ std::string camera_commands(void *context, std::string command)
     {
       LOG_INFO << "Stopping Image transfer";
       LOG_INFO_(FileLog) << "Stopping Image transfer";
+      Commandcontext->capture = 0;
       GevStopImageTransfer(handle);
+      //GevFreeImageTransfer( handle);
+      return "0";
     }
 
-  if (Commandcontext->capture)
+  if (Commandcontext->capture == 0)
     {
-      if (Commandcontext->capture > 0)
+      if((parsed_commands["capture"] != 0) && (parsed_commands["interval"] > 0))
         {
-          int c = Commandcontext->capture;
-          for (i = 0; i < numBuffers; i++)
+          Commandcontext->interval = parsed_commands["interval"];
+          Commandcontext->capture = parsed_commands["capture"];
+          if (Commandcontext->capture != 0)
             {
-              LOG_VERBOSE << "allocating memory for buffer " << i;
-              LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
-              //memset(bufAddress[i], 0, size);
-              memset(Commandcontext->bufAddress[i], 0, size);
+              Commandcontext->exit = false;
+              LOG_DEBUG << "Starting continuous image Transfer";
+              LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
+              Commandcontext->frames_captured = 0;
+              status = GevStartImageTransfer( handle, -1);
+              if (status != 0) {
+                Commandcontext->recent_error = "Error starting grab - ";
+                LOG_WARNING << "Error starting grab - " << std::hex << status;
+                LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
+                return "-1";
+              }
             }
-          Commandcontext->exit = false;
-          LOG_DEBUG << "Starting image transfer for " << c << " frames";
-          LOG_DEBUG_(FileLog) << "Starting image transfer for " << c << " frames";
-          Commandcontext->frames_captured = 0;
-          status = GevStartImageTransfer( handle, (UINT32)(c));
-          if (status != 0) {
-            Commandcontext->recent_error = "Error starting grab - ";
-            LOG_WARNING << "Error starting grab - " << std::hex << status;
-            LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
-          }
-          else
-            {
-              LOG_DEBUG << "Ready to grab frames \n";
-              LOG_DEBUG_(FileLog) << "Ready to grab frames \n";
-            }
-        }
-      else if (Commandcontext->capture == -1)
-        {
-          for (i = 0; i < numBuffers; i++)
-            {
-              LOG_VERBOSE << "allocating memory for buffer " << i;
-              LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
-              //memset(bufAddress[i], 0, size);
-              memset(Commandcontext->bufAddress[i], 0, size);
-            }
-          Commandcontext->exit = false;
-          LOG_DEBUG << "Starting continuous image transfer";
-          LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
-          Commandcontext->frames_captured = 0;
-          status = GevStartImageTransfer( handle, -1);
-          if (status != 0) {
-            Commandcontext->recent_error = "Error starting grab - ";
-            LOG_WARNING << "Error starting grab - " << std::hex << status;
-            LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
-          }
         }
       else
         {
-          LOG_WARNING << "There is no point in saving 0 images :/ ";
+          Commandcontext->recent_error = "Invalid number of images to be captured or Invalid interval between captures";
           return "-1";
         }
-    }
-  /*
-    bool command_is_in = VALID_COMMANDS.find(command[0]) != VALID_COMMANDS.end();
-    bool command_is_digit = isdigit(command[0]);
-    if (command_is_in | command_is_digit)
-    {
-    char c = command[0];
-    if ((c == 'T') || (c =='t'))
-    {
-    // See if TurboDrive is available.
-    turboDriveAvailable = IsTurboDriveAvailable(handle);
-    if (turboDriveAvailable)
-    {
-    int type;
-    UINT32 val = 1;
-    GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
-    val = (val == 0) ? 1 : 0;
-    GevSetFeatureValue(handle, "transferTurboMode", sizeof(UINT32), &val);
-    GevGetFeatureValue(handle, "transferTurboMode", &type, sizeof(UINT32), &val);
-    if (val == 1)
-    {
-    LOG_INFO << "TurboMode Enabled";
-    LOG_INFO_(FileLog) << "TurboMode Enabled";
-    }
-    else
-    {
-    LOG_INFO << "TurboMode Disabled";
-    LOG_INFO_(FileLog) << "TurboMode Disabled";
-    }
-    }
-    else
-    {
-    LOG_WARNING << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
-    LOG_WARNING_(FileLog) << "*** TurboDrive is NOT Available for this device/pixel format combination ***";
-    }
-    }
-
-    // Stop
-    if ((c == 'S') || (c =='s') || (c  == '0'))
-    {
-    LOG_INFO << "Stopping Image transfer";
-    LOG_INFO_(FileLog) << "Stopping Image transfer";
-    GevStopImageTransfer(handle);
-    }
-    //Abort
-    if ((c == 'A') || (c =='a'))
-    {
-    LOG_INFO << "Aborting and discarding the queued buffer(s)";
-    LOG_INFO_(FileLog) << "Aborting and discarding the queued buffer(s)";
-    GevAbortImageTransfer(handle);
-    }
-    // Snap N (1 to 9 frames)
-    if ((c >= '1')&&(c <='9'))
-    {
-    for (i = 0; i < numBuffers; i++)
-    {
-    LOG_VERBOSE << "allocating memory for buffer " << i;
-    LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
-    //memset(bufAddress[i], 0, size);
-    memset(Commandcontext->bufAddress[i], 0, size);
-    }
-    LOG_DEBUG << "Starting image transfer for " << c << " frames";
-    LOG_DEBUG_(FileLog) << "Starting image transfer for " << c << " frames";
-    status = GevStartImageTransfer( handle, (UINT32)(c-'0'));
-    if (status != 0) {
-    LOG_WARNING << "Error starting grab - " << std::hex << status;
-    LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
-    }
-    else
-    {
-    LOG_DEBUG << "Ready to grab frames \n";
-    LOG_DEBUG_(FileLog) << "Ready to grab frames \n";
-    }
-    }
-    // Continuous grab.
-    if ((c == 'G') || (c =='g'))
-    {
-    for (i = 0; i < numBuffers; i++)
-    {
-    LOG_VERBOSE << "allocating memory for buffer " << i;
-    LOG_VERBOSE_(FileLog) << "allocating memory for buffer " << i;
-    //memset(bufAddress[i], 0, size);
-    memset(Commandcontext->bufAddress[i], 0, size);
-    }
-    LOG_DEBUG << "Starting continuous image transfer";
-    LOG_DEBUG_(FileLog) << "Starting continuous image transfer";
-    status = GevStartImageTransfer( handle, -1);
-    if (status != 0) {
-    LOG_WARNING << "Error starting grab - " << std::hex << status;
-    LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
-    }
-    }
-
-    if (c == '?')
-    {
-    PrintMenu();
-    }
-
-    if ((c == 'x') || (c == 'x'))
-    {
-    Commandcontext->interval = 5;
-    }
-
-
-    if ((c == 0x1b) || (c == 'q') || (c == 'Q'))
-    {
-    LOG_INFO << "Stopping image transfer";
-    LOG_INFO_(FileLog) << "Stopping image transfer";
-    GevStopImageTransfer(handle);
-    Commandcontext->exit = TRUE;
-    // Joining is crapping out! But the thread has explicit
-    // call to pthread_exit(0) so we are good. Tested.
-    // But this should be looked into.
-    //pthread_join( Commandcontext->tid, NULL);
-    cleanup(Commandcontext);
-    }
-
-    return 0;
-    }
-    else
-    {
-    return -1;
-    }
-  */
+  }
+  else {
+    Commandcontext->recent_error = "Image capture is already in progress";
+    LOG_WARNING << "Image capture is already in progress";
+  }
   return "0";
 }
 
 void killself()
 {
   LOG_FATAL << "Quitting Now";
-  exit(0);
+  exit(99);
 }
 
 int main(int argc, char* argv[])

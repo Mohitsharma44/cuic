@@ -84,6 +84,14 @@ typedef struct tagMY_CONTEXT
   long int            frames_captured;
 }MY_CONTEXT, *PMY_CONTEXT;
 
+struct ClearErrorMsgs{
+  MY_CONTEXT *clrContext;
+  ~ClearErrorMsgs(){
+    clrContext->recent_error = "";
+    clrContext->msg = "";
+  }
+};
+
 static unsigned long us_timer_init( void )
 {
   struct timeval tm;
@@ -978,6 +986,20 @@ std::string camera_commands(void *context, std::string command)
       return exposure;
     };
 
+  auto get_status = [Commandcontext, get_exposure]()
+    {
+      ClearErrorMsgs clr_msgs;
+      clr_msgs.clrContext = Commandcontext;
+      json status_resp;
+      status_resp["capture"] = Commandcontext->capture;
+      status_resp["interval"] = Commandcontext->interval;
+      status_resp["exposure"] = get_exposure();
+      status_resp["frames_captured"] = Commandcontext->frames_captured;
+      status_resp["msg"] = Commandcontext->msg;
+      status_resp["recent_error"] = Commandcontext->recent_error;
+      return status_resp.dump();
+    };
+  
   if (parsed_commands["interval"] > 0)
     {
       Commandcontext->interval = parsed_commands["interval"];
@@ -1012,18 +1034,9 @@ std::string camera_commands(void *context, std::string command)
       }
   }
 
-  //if (std::stoi(command) == 30)
-  if (Commandcontext->status)
-    {
-      json status_resp;
-      status_resp["capture"] = Commandcontext->capture;
-      status_resp["interval"] = Commandcontext->interval;
-      status_resp["exposure"] = get_exposure();
-      status_resp["frames_captured"] = Commandcontext->frames_captured;
-      status_resp["msg"] = Commandcontext->msg;
-      status_resp["recent_error"] = Commandcontext->recent_error;
-      return status_resp.dump();
-    }
+  if (Commandcontext->status){
+    return get_status();
+  }
 
   if (Commandcontext->stop)
     {
@@ -1032,7 +1045,7 @@ std::string camera_commands(void *context, std::string command)
       Commandcontext->capture = 0;
       GevStopImageTransfer(handle);
       //GevFreeImageTransfer( handle);
-      return "0";
+      return get_status();
     }
 
   if (Commandcontext->capture == 0)
@@ -1052,21 +1065,19 @@ std::string camera_commands(void *context, std::string command)
                 Commandcontext->recent_error = "Error starting grab - ";
                 LOG_WARNING << "Error starting grab - " << std::hex << status;
                 LOG_WARNING_(FileLog) << "Error starting grab - " << std::hex << status;
-                return "-1";
               }
             }
         }
       else
         {
           Commandcontext->recent_error = "Invalid number of images to be captured or Invalid interval between captures";
-          return "-1";
         }
   }
   else {
     Commandcontext->recent_error = "Image capture is already in progress";
     LOG_WARNING << "Image capture is already in progress";
   }
-  return "0";
+  return get_status();
 }
 
 void killself()

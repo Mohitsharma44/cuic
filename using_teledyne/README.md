@@ -11,6 +11,9 @@
 - libx11-dev
 - libxext-dev
 
+*Dependencies(Automatically built)*
+- [AMQP-CPP v2.6.2](https://github.com/CopernicaMarketingSoftware/AMQP-CPP/archive/v2.6.2.tar.gz)
+
 *Environment variables:*
 - GENICAM_ROOT_V3_0=/opt/genicam_v3_0
 - GENICAM_CACHE_V3_0=/var/opt/genicam/xml/cache

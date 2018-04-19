@@ -6,6 +6,7 @@
 - g++
 - libgtk-3-dev
 - make
+- libevent-dev
 - libglade2-0
 - libglade2-dev
 - libx11-dev

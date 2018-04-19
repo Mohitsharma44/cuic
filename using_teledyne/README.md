@@ -2,6 +2,17 @@
 
 #### Pre-requisites:
 
+*Boost v1.55*
+```shell
+wget -O boost_1_55_0.tar.gz http://sourceforge.net/projects/boost/files/boost/1.55.0/boost_1_55_0.tar.gz/download
+tar xzvf boost_1_55_0.tar.gz
+cd boost_1_55_0/
+./bootstrap.sh --prefix=/usr
+./b2 stage threading=multi link=shared
+n=`cat /proc/cpuinfo | grep "cpu cores" | uniq | awk '{print $NF}'`
+./b2 --with=all -j $n install
+```
+
 *Packages:*
 - g++
 - libgtk-3-dev

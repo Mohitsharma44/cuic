@@ -15,6 +15,7 @@
 #include <sched.h>
 #include <algorithm>
 #include <fstream>
+#include <arpa/inet.h>
 // -- Specially for Logging
 #include <plog/Log.h>
 #include <plog/Appenders/ColorConsoleAppender.h>
@@ -71,6 +72,7 @@ typedef struct tagMY_CONTEXT
 {
   GenApi::CNodeMapRef *Camera;
   GEV_CAMERA_HANDLE   camHandle;
+  unsigned long       ipaddr;
   pthread_t           tid;
   BOOL                exit;
   PUINT8              bufAddress[NUM_BUF];
@@ -597,7 +599,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
   UINT16 status;
   //MY_CONTEXT context = {0};
   int numCamera = 0;
-  int camIndex = 0;
+  int camIndex = 1;
   pthread_t  tid;
   int done = FALSE;
   int turboDriveAvailable = 0;
@@ -658,7 +660,16 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
       // Open the camera.
       LOG_DEBUG << "Opening the connection to the camera";
       LOG_DEBUG_(FileLog) << "Opening the connection to the camera";
-      status = GevOpenCamera( &pCamera[camIndex], GevExclusiveMode, &handle);
+      //status = GevOpenCamera( &pCamera[camIndex], GevExclusiveMode, &handle);
+      // Open camera based on IP address
+      // ------
+      // convert hex to ip format
+      struct in_addr addr;
+      addr.s_addr = htonl(context.ipaddr);
+      char *s = inet_ntoa(addr);
+      // ------
+      LOG_INFO << "Opening " << s;
+      status = GevOpenCameraByAddress( context.ipaddr, GevExclusiveMode, &handle);
       if (status == 0)
         {
           //=================================================================
@@ -766,7 +777,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
                   // Set ExposureTime
                   pNode = Camera->_GetNode("ExposureTime");
                   GenApi::CValuePtr expVal(pNode);
-                  expVal->FromString("90000.0", false);
+                  expVal->FromString("50.0", false);
 
                   // Set Framerate
                   pNode = Camera->_GetNode("AcquisitionFrameRate");
@@ -1086,6 +1097,41 @@ void killself()
   exit(99);
 }
 
+
+// function for reverse hexadecimal number
+void reverse(char* str)
+{
+  // l for swap with index 2
+  int l = 2;
+  int r = strlen(str) - 2;
+
+  // swap with in two-2 pair
+  while (l < r) {
+    std::swap(str[l++], str[r++]);
+    std::swap(str[l++], str[r]);
+    r = r - 3;
+  }
+}
+
+// function to conversion and print
+// the hexadecimal value
+unsigned long ipToHexa(int addr)
+{
+  char str[15];
+
+  // convert integer to string for reverse
+  sprintf(str, "0x%08x", addr);
+
+  // reverse for get actual hexadecimal
+  // number without reverse it will
+  // print 0x0100007f for 127.0.0.1
+  reverse(str);
+
+  // print string
+  std::cout << str << "\n";
+  return std::strtoul(str, NULL, 0);
+}
+
 int main(int argc, char* argv[])
 {
   // Log file appender (fname, fsize<10mbytes>, #backups)
@@ -1096,13 +1142,16 @@ int main(int argc, char* argv[])
   // log to console and to file
   plog::init(plog::debug, &consoleAppender);
   plog::init<FileLog>(plog::debug, &fileAppender);
-
+  MY_CONTEXT cuicContext = {0};
+  // Get IP Address of camera to connect to in Hex format
+  int addr = inet_addr(argv[1]);
+  unsigned long hex_ip = ipToHexa(addr);
+  cuicContext.ipaddr = hex_ip;
   // -------- AMQP TESTING v2.6.2
   boost::asio::io_service ioService;
   AsioHandler handler(ioService);
   handler.connect(std::getenv("rpc_server"), std::stoi(std::getenv("rpc_port")));
   const char* cuic_command = NULL;
-  MY_CONTEXT cuicContext = {0};
   initialize_cameras(cuicContext);
 
   AMQP::Connection connection(&handler,
@@ -1148,6 +1197,5 @@ int main(int argc, char* argv[])
   //while(true){
   //  usleep(100000);
   //}
-
   return 0;
 }

@@ -982,7 +982,7 @@ std::string camera_commands(void *context, std::string command)
   //Commandcontext->capture = parsed_commands["capture"];
   Commandcontext->stop = parsed_commands["stop"];
   Commandcontext->status = parsed_commands["status"];
-  Commandcontext->location = parsed_commands["location"];
+  //Commandcontext->location = parsed_commands["location"];
   //Commandcontext->interval = parsed_commands["interval"];
   std::string kill = parsed_commands["kill"];
   UINT32 exposure = parsed_commands["exposure"];
@@ -1147,6 +1147,9 @@ int main(int argc, char* argv[])
   int addr = inet_addr(argv[1]);
   unsigned long hex_ip = ipToHexa(addr);
   cuicContext.ipaddr = hex_ip;
+  // Camlocation is the AMQP queue name
+  std::string camlocation(argv[2]);
+  cuicContext.location = camlocation;
   // -------- AMQP TESTING v2.6.2
   boost::asio::io_service ioService;
   AsioHandler handler(ioService);
@@ -1160,7 +1163,8 @@ int main(int argc, char* argv[])
 
   AMQP::Channel channel(&connection);
   channel.setQos(1);
-  channel.declareQueue("1mtcSouth_vis_queue");
+  //channel.declareQueue("1mtcSouth_vis_queue");
+  channel.declareQueue(camlocation);
   channel.consume("")
     .onReceived([&channel, &cuicContext](const AMQP::Message &message,
                                          uint64_t deliveryTag,

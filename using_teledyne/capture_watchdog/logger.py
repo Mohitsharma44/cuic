@@ -10,7 +10,7 @@ import logging.handlers
 import os
 import inspect
 
-def pyfraclogger(loggername=None, every="midnight", tofile=True):
+def logger(loggername=None, every="midnight", tofile=True):
     """
     This function will return a logger that will write the
     debug level logs to a file and print info level 

@@ -8,6 +8,7 @@ import logger
 import asyncio
 import pyinotify
 import multiprocessing
+from rpc_client import UOControllerRpcClient
 
 logger = logger.logger(tofile=False)
 
@@ -26,23 +27,41 @@ RPC_PASS = os.getenv("rpc_pass")
 IMG_DIR = os.path.join(os.getenv("mtc_vis_dir"), args.location[0], "live")
 
 mask = pyinotify.IN_DELETE | pyinotify.IN_CREATE | pyinotify.IN_MOVED_TO # watched events
+known_vis_queues = {
+    "1mtcNorth": {"cam": "1mtcNorth", "watchdog": "1mtcNorth_watchdog"},
+    "1mtcSouth": {"cam": "1mtcSouth", "watchdog": "1mtcSouth_watchdog"},
+    "370Roof"  : {"cam": "370Roof", "watchdog": "370Roof_watchdog"},
+    "test"     : {"cam": "test", "watchdog": "test_watchdog"},
+}
 
 
 class FsEventHandler(pyinotify.ProcessEvent):
     def __init__(self, cam_commands):
+        self._prev_timestamp = 0
+        self._current_timestamp = 0
         self.cam_commands = cam_commands
-        
+
     def process_IN_CREATE(self, event):
-        print("Creating:", event.pathname)
-        print(self.cam_commands)
+        try:
+            print("Creating:", event.pathname)
+            self._current_timestamp = os.path.getmtime(event.pathname)
+            while True:
+                if time.time() - self._current_timestamp > 2*(cam_commands["interval"]):
+                    print("will restart because no images received in last 2*interval")
+                    vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
+                                                               queue_name=known_vis_queues[cam_commands["location"]]["cam"])
+                    cam_response = vis_cam_rpc_client.call(json.dumps(dict(cam_commands)))
+                    break
+                time.sleep(0.5)
+            self._prev_timestamp = self._current_timestamp
+        except Exception as ex:
+            logger.warning("Exception in processing IN_CREATE event: "+str(ex))
         
     def process_IN_DELETE(self, event):
         print("Removing:", event.pathname)
-        print(self.cam_commands)
         
     def process_IN_MOVED_TO(self, event):
         print("Moved: ", event.pathname)
-        print(self.cam_commands)
 
 def monitor_fs(directory, cam_commands):
     """
@@ -56,8 +75,11 @@ def monitor_fs(directory, cam_commands):
     """
     wm = pyinotify.WatchManager()
     loop = asyncio.get_event_loop()
+    event_handler = FsEventHandler(cam_commands)
     notifier = pyinotify.AsyncioNotifier(wm, loop,
-                                         default_proc_fun=FsEventHandler(cam_commands))
+                                         default_proc_fun=event_handler)
+    #notifier = pyinotify.AsyncioNotifier(wm, loop,
+    #                                     default_proc_fun=FsEventHandler(cam_commands))
     wm.add_watch(directory, mask)
     loop.run_forever()
     notifier.stop()

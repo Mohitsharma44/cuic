@@ -51,8 +51,10 @@ using json = nlohmann::json;
 std::set<char> VALID_COMMANDS = {'a', '?', 't', 'g', 's', 'q', 'x'};
 
 // Declaring Functions
+//GEV_STATUS Gev_Reconnect( GEV_CAMERA_HANDLE handle);
 std::string camera_commands(void *context, std::string command);
 void killself(void);
+int cleanup(void *context);
 
 // stupid logging enum
 enum // Define log instances. Default is 0 and is omitted from this enum.
@@ -170,11 +172,25 @@ void * ImageSaveThread( void *context)
           GEV_BUFFER_OBJECT *img = NULL;
           GEV_STATUS status = 0;
           PUINT8 imgaddr = NULL;
+	  int nullctr = 0;
           // Wait for images to be received
           status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
-          if ((saveContext->capture != 0) && (saveContext->interval > 0) &&
+
+	  if ((status != GEVLIB_OK) && (saveContext->capture != 0) &&
+	      (saveContext->interval > 0)) {
+	    LOG_WARNING << "Timeout or Null ptr in Image";
+	    nullctr += 1;
+	    if (nullctr > 2){
+	      cleanup(saveContext);
+	      sleep(2);
+	      killself();
+	    }
+	  }
+
+          else if ((saveContext->capture != 0) && (saveContext->interval > 0) &&
               (img != NULL) && (status == GEVLIB_OK))
             {
+	      nullctr = 0;
               LOG_VERBOSE << "Image Status: " << img->status;
               LOG_VERBOSE_(FileLog) << "Image Status: " << img->status;
               LOG_VERBOSE << "Buffer State: " << img->recv_size;
@@ -227,6 +243,9 @@ void * ImageSaveThread( void *context)
             }
 #endif
           sleep(saveContext->interval);
+	  //GEV_STATUS connected_status = 0;
+	  //connected_status = Gev_Reconnect(saveContext->camHandle);
+	  //LOG_WARNING << "Checking CamConnected Status: " << connected_status;
         }
       LOG_WARNING << "Terminating ImgSaveThread";
       LOG_WARNING_(FileLog) << "Terminating ImgSaveThread";
@@ -547,11 +566,13 @@ int CamFeatures(GenApi::CNodeMapRef *Camera, const char* filename, const char *c
 }
 
 
-int cleanup(MY_CONTEXT *context)
+//int cleanup(MY_CONTEXT *context)
+int cleanup(void *context)
 {
   UINT16 status;
   int numBuffers = NUM_BUF;
-  MY_CONTEXT *Cleanupcontext = context;
+  MY_CONTEXT *Cleanupcontext = (MY_CONTEXT *)context;
+  //MY_CONTEXT *Cleanupcontext = context;
   //PUINT8 bufAddress[NUM_BUF] = {Cleanupcontext->&bufAddress};
   GEV_CAMERA_HANDLE handle = Cleanupcontext -> camHandle;
   LOG_INFO << "Aborting and discarding the queued buffer(s)";
@@ -777,7 +798,7 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
                   // Set ExposureTime
                   pNode = Camera->_GetNode("ExposureTime");
                   GenApi::CValuePtr expVal(pNode);
-                  expVal->FromString("50.0", false);
+                  expVal->FromString("500.0", false);
 
                   // Set Framerate
                   pNode = Camera->_GetNode("AcquisitionFrameRate");

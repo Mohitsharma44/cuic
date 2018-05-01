@@ -12,7 +12,7 @@ import multiprocessing
 from rpc_client import UOControllerRpcClient
 from xmlrpc.client import ServerProxy
 
-logger = logger.logger(tofile=False)
+logger = logger.logger(tofile=True)
 
 parser = argparse.ArgumentParser(description='WatchDog -- sidekick to the cuic capture'+ \
                                  '(currently only supports teledyne cameras)')

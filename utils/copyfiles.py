@@ -11,7 +11,7 @@ log = open('copy_log.log', 'w')
 for f in os.listdir(path):
     #Generate new directory path
     file = os.path.join(path, f)
-    time = datetime.fromtimestamp(os.stat(file).st_birthtime)
+    time = datetime.fromtimestamp(os.stat(file).st_mtime)
     npath = base + "/%d/%02d/%02d/%02d"%(time.year,time.month,time.day,time.hour)
     nfile = os.path.join(npath, f)
     log.write('check '+nfile+'\n')

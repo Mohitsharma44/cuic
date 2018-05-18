@@ -21,11 +21,14 @@ for f in os.listdir(path):
         log.write('create dir: '+npath+'\n')
         os.makedirs(npath)
 
-    #Copy the file
-    shutil.copy2(file, npath)
-    log.write('copy to '+npath+'\n')
-
-    #Compare the file
-    log.write('compare result: '+str(cmp(file,nfile))+'\n')
+    if not os.path.exists(nfile):
+        #Copy the file
+        shutil.copy2(file, npath)
+        log.write('copy to '+npath+'\n')
+        #Compare the file
+        log.write('compare result: '+str(cmp(file,nfile))+'\n')
+    else:
+        log.write('already exist: '+nfile+'\n')
 
 log.close()
+sys.exit()

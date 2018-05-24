@@ -26,7 +26,7 @@ def copyfile():
 
     #Begin logging
     tlog = datetime.now().isoformat()
-    log = open('copylog_'+tlog+'.log', 'w')
+    log = open('copylog_'+'_'.join(base.split('/')[-2:])+'_'+tlog+'.log', 'w')
 
     for f in os.listdir(path):
         #Generate new directory path

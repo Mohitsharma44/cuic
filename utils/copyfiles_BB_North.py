@@ -4,6 +4,21 @@ import shutil
 from filecmp import cmp
 import sched
 import time
+import hashlib
+
+#File compare
+def hash_bytestr_iter(bytesiter, hasher, ashexstr=False):
+    for block in bytesiter:
+        hasher.update(block)
+    # print('here')
+    return (hasher.hexdigest() if ashexstr else hasher.digest())
+
+def file_as_blockiter(afile, blocksize=65536):
+    with afile:
+        block = afile.read(blocksize)
+        while len(block) > 0:
+            yield block
+            block = afile.read(blocksize)
 
 def copyfile():
     base = "/nfs-volume/volume6/BB/1mtcNorth"
@@ -30,14 +45,15 @@ def copyfile():
         if not os.path.exists(nfile):
             #Copy the file
             shutil.copy2(file, npath)
-            log.write('copy to '+npath+'\n')
+            log.write('Copy to '+npath+'\n')
             #Compare the file
-            log.write('compare result: '+str(cmp(file,nfile))+'\n')
+            hashfile = hash_bytestr_iter(file_as_blockiter(open(file, 'rb')), hashlib.sha256())
+            hashnfile = hash_bytestr_iter(file_as_blockiter(open(nfile, 'rb')), hashlib.sha256())
+            log.write('Compare result: '+str(hashfile==hashnfile)+'\n')
         else:
-            log.write('already exist: '+nfile+'\n')
+            log.write('Already exists: '+nfile+'\n')
 
     log.close()
-#     sys.exit()
 
 class PeriodicScheduler(object):
     def __init__(self):

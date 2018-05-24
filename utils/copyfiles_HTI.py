@@ -1,5 +1,5 @@
-import os
-from datetime import datetime
+import os, sys
+from datetime import datetime,timedelta
 import shutil
 from filecmp import cmp
 import sched
@@ -33,8 +33,8 @@ def copyfile():
             log.write('copy to '+npath+'\n')
             #Compare the file
             log.write('compare result: '+str(cmp(file,nfile))+'\n')
-        else:
-            log.write('already exist: '+nfile+'\n')
+        # else:
+        #     log.write('already exist: '+nfile+'\n')
 
     log.close()
 #     sys.exit()
@@ -51,7 +51,10 @@ class PeriodicScheduler(object):
     def run(self):
         self.scheduler.run()
 
-INTERVAL = 60*15 # every 15 minutes
-periodic_scheduler = PeriodicScheduler()
-periodic_scheduler.setup(INTERVAL, copyfile) # it executes the event just once
-periodic_scheduler.run() # it starts the scheduler
+try:
+    INTERVAL = 60*15 # every 15 minutes
+    periodic_scheduler = PeriodicScheduler()
+    periodic_scheduler.setup(INTERVAL, copyfile) # it executes the event just once
+    periodic_scheduler.run() # it starts the scheduler
+except KeyboardInterrupt:
+    sys.exit()

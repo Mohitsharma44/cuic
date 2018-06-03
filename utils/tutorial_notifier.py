@@ -10,7 +10,7 @@ wm = pyinotify.WatchManager()  # Watch Manager
 mask = pyinotify.IN_DELETE | pyinotify.IN_CREATE  # watched events
 
 class EventHandler(pyinotify.ProcessEvent):
-    def gettemp(f):
+    def gettemp(self,f):
         file = open(f,'r')
         return file.read()
 

@@ -13,11 +13,12 @@ class EventHandler(pyinotify.ProcessEvent):
         return file.read()
 
     def process_IN_CREATE(self, event):
-        nf = event.pathname.split('/')[-1].split('.')[0]+'.temp'
-        print("Creating: {}".format(os.path.join(des, nf)))
-        t = open(os.path.join(des, nf), 'w')
-        t.write(self.gettemp(event.pathname))
-        t.close()
+        if event.pathname.split('.')[-1] != 'temp':
+            nf = event.pathname.split('/')[-1].split('.')[0]+'.temp'
+            print("Creating: {}".format(event.pathname))
+            t = open(os.path.join(des, nf), 'w')
+            t.write(self.gettemp(event.pathname))
+            t.close()
 
     def process_IN_DELETE(self, event):
         print("Removing: {}".format(event.pathname))

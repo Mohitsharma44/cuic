@@ -7,7 +7,7 @@ from datetime import datetime
 path = '/home/pi/temp'
 dest = '/home/pi/temp'
 wm = pyinotify.WatchManager()  # Watch Manager
-mask = pyinotify.IN_CREATE  # watched events
+mask = pyinotify.IN_CLOSE_WRITE  # watched events
 
 class EventHandler(pyinotify.ProcessEvent):
     # def gettemp(self,f):
@@ -15,8 +15,7 @@ class EventHandler(pyinotify.ProcessEvent):
     #     # return file.read()
     #     for sensor in W1ThermSensor.get_available_sensors():
     #         print("Sensor %s has temperature %.2f" % (sensor.id, sensor.get_temperature()))
-
-    def process_IN_CREATE(self, event):
+    def getTemp(self,event):
         if event.pathname.split('.')[-1] == 'MOV':
             nf = event.pathname.split('/')[-1].split('.')[0]+'.temp'
             print("Creating: {}".format(event.pathname))
@@ -24,6 +23,9 @@ class EventHandler(pyinotify.ProcessEvent):
             for sensor in W1ThermSensor.get_available_sensors():
                 t.write("{},{},{}".format(datetime.now().isoformat(),sensor.id,sensor.get_temperature()))
             t.close()
+
+    def process_IN_CLOSE_WRITE(self, event):
+        self.getTemp(event)
 
 handler = EventHandler()
 notifier = pyinotify.Notifier(wm, handler)

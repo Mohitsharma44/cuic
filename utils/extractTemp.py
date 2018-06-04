@@ -17,7 +17,7 @@ class EventHandler(pyinotify.ProcessEvent):
     #         print("Sensor %s has temperature %.2f" % (sensor.id, sensor.get_temperature()))
 
     def process_IN_CREATE(self, event):
-        if event.pathname.split('.')[-1] != 'temp':
+        if event.pathname.split('.')[-1] == 'mov':
             nf = event.pathname.split('/')[-1].split('.')[0]+'.temp'
             print("Creating: {}".format(event.pathname))
             t = open(os.path.join(des, nf), 'w')

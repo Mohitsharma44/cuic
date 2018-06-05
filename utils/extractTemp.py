@@ -19,9 +19,9 @@ class EventHandler(pyinotify.ProcessEvent):
         if event.pathname.split('.')[-1] == 'MOV':
             nf = event.pathname.split('/')[-1].split('.')[0]+'.temp'
             print("Creating: {}".format(event.pathname))
-            t = open(os.path.join(des, nf), 'w')
+            t = open(os.path.join(dest, nf), 'w')
             for sensor in W1ThermSensor.get_available_sensors():
-                t.write("{},{},{}".format(datetime.now().isoformat(),sensor.id,sensor.get_temperature()))
+                t.write("{},{},{}\n".format(datetime.now().isoformat(),sensor.id,sensor.get_temperature()))
             t.close()
 
     def process_IN_CLOSE_WRITE(self, event):

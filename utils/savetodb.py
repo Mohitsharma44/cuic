@@ -21,7 +21,7 @@ class EventHandler(pyinotify.ProcessEvent):
             fpath = event.pathname
             time = datetime.now().timestamp()
 
-            # print("Creating: {}".format(event.pathname))
+            print("Creating: {}".format(event.pathname))
             # t = open(os.path.join(dest, nf), 'w')
             # for sensor in W1ThermSensor.get_available_sensors():
             #     sensor_id = sensor.id

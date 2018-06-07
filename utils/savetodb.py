@@ -1,6 +1,6 @@
 import pyinotify
 import os
-from w1thermsensor import W1ThermSensor
+# from w1thermsensor import W1ThermSensor
 from datetime import datetime
 
 from couchbase.cluster import Cluster, PasswordAuthenticator

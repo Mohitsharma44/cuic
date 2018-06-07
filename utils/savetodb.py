@@ -7,10 +7,10 @@ from keys import usrid, password
 from couchbase.cluster import Cluster, PasswordAuthenticator
 cluster = Cluster('couchbase://localhost')
 cluster.authenticate(PasswordAuthenticator(usrid, password))
-bucket = cluster.open_bucket('hit-bucket')
+bucket = cluster.open_bucket('hti-bucket')
 
-# path = '/home/pi/temp'
-path = '/home/yw3447'
+path = '/home/pi/temp'
+# path = '/home/yw3447'
 wm = pyinotify.WatchManager()  # Watch Manager
 mask = pyinotify.IN_CLOSE_WRITE  # watched events
 

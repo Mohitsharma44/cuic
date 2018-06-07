@@ -5,7 +5,7 @@ from datetime import datetime
 
 from couchbase.cluster import Cluster, PasswordAuthenticator
 cluster = Cluster('couchbase://localhost')
-cluster.authenticate(PasswordAuthenticator('Admin', '9336@ashinWYK'))
+cluster.authenticate(PasswordAuthenticator('yw3447', '9336@ashinWYK'))
 bucket = cluster.open_bucket('test-bucket')
 
 # path = '/home/pi/temp'

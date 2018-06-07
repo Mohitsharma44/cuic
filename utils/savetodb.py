@@ -9,8 +9,8 @@ cluster = Cluster('couchbase://localhost')
 cluster.authenticate(PasswordAuthenticator(usrid, password))
 bucket = cluster.open_bucket('test-bucket')
 
-path = '/home/pi/temp'
-# path = '/home/yw3447'
+# path = '/home/pi/temp'
+path = '/home/yw3447'
 wm = pyinotify.WatchManager()  # Watch Manager
 mask = pyinotify.IN_CLOSE_WRITE  # watched events
 

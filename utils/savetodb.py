@@ -30,7 +30,7 @@ class EventHandler(pyinotify.ProcessEvent):
             bucket.upsert(seq,{'fname':fname,'fpath':fpath,'time':time
             # ,'temp':temp
             })
-            bucket.replace('nextseq',seq+1)
+            bucket.replace('nextseq','{:08d}'.format(int(seq)+1))
 
     def process_IN_CLOSE_WRITE(self, event):
         self.savetodb(event)

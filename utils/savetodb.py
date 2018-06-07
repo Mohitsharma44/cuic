@@ -20,7 +20,7 @@ class EventHandler(pyinotify.ProcessEvent):
             seq = bucket.get('nextseq').value
             fname = event.pathname.split('/')[-1]
             fpath = event.pathname
-            time = datetime.now().timestamp()
+            time = os.stat(file).st_mtime
 
             print("Creating: {}".format(event.pathname))
             for sensor in W1ThermSensor.get_available_sensors():

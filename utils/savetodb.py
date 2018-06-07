@@ -1,12 +1,13 @@
 import pyinotify
 import os
-# from w1thermsensor import W1ThermSensor
+from w1thermsensor import W1ThermSensor
 from datetime import datetime
+from keys import usrid, password
 
 from couchbase.cluster import Cluster, PasswordAuthenticator
 cluster = Cluster('couchbase://localhost')
-cluster.authenticate(PasswordAuthenticator('yw3447', '9336@ashinWYK'))
-bucket = cluster.open_bucket('test-bucket')
+cluster.authenticate(PasswordAuthenticator(usrid, password))
+bucket = cluster.open_bucket('hit-bucket')
 
 # path = '/home/pi/temp'
 path = '/home/yw3447'
@@ -22,14 +23,9 @@ class EventHandler(pyinotify.ProcessEvent):
             time = datetime.now().timestamp()
 
             print("Creating: {}".format(event.pathname))
-            # t = open(os.path.join(dest, nf), 'w')
-            # for sensor in W1ThermSensor.get_available_sensors():
-            #     sensor_id = sensor.id
-            #     temp = sensor.get_temperature()
-            # t.close()
-            bucket.upsert(seq,{'fname':fname,'fpath':fpath,'time':time
-            # ,'temp':temp
-            })
+            for sensor in W1ThermSensor.get_available_sensors():
+                temp = sensor.get_temperature()
+            bucket.upsert(seq,{'fname':fname,'fpath':fpath,'time':time,'temp':temp})
             bucket.replace('nextseq','{:08d}'.format(int(seq)+1))
 
     def process_IN_CLOSE_WRITE(self, event):

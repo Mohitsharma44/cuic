@@ -9,7 +9,7 @@ cluster.authenticate(PasswordAuthenticator(usrid, password))
 bucket = cluster.open_bucket('test-bucket')
 
 # path = '/home/pi/temp'
-path = '/home/yw3447'
+path = '/home/yw3447/test'
 wm = pyinotify.WatchManager()  # Watch Manager
 mask = pyinotify.IN_CLOSE_WRITE  # watched events
 
@@ -22,7 +22,7 @@ class EventHandler(pyinotify.ProcessEvent):
             time = os.stat(fpath).st_mtime
 
             print("Creating: {}".format(event.pathname))
-            with open(event.pathname.split('.')[:-1]+'.meta') as f:
+            with open(event.pathname.split('.')[0]+'.meta') as f:
                 data = json.loads(f.read())
                 exposure = data['exposure']
                 aperture = data['aperture']

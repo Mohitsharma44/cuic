@@ -6,6 +6,7 @@ import ast
 import os
 import sys
 import pika
+import shutil
 import logger
 import asyncio
 import pyinotify
@@ -38,7 +39,7 @@ RPC_USER = os.getenv("rpc_user")
 RPC_PASS = os.getenv("rpc_pass")
 IMG_DIR = os.path.join(os.getenv("mtc_vis_dir"), args.location[0], "live")
 
-mask = pyinotify.IN_DELETE | pyinotify.IN_CREATE | pyinotify.IN_MOVED_TO # watched events
+mask = pyinotify.IN_DELETE | pyinotify.IN_CREATE | pyinotify.IN_MOVED_TO | pyinotify.IN_CLOSE_WRITE # watched events
 known_vis_queues = {
     "1mtcNorth": {"cam": "1mtcNorth", "watchdog": "1mtcNorth_watchdog"},
     "1mtcSouth": {"cam": "1mtcSouth", "watchdog": "1mtcSouth_watchdog"},
@@ -108,12 +109,18 @@ class FsEventHandler(pyinotify.ProcessEvent):
             self._current_timestamp = time.time()
             self.BUSY = False
             
-    def process_IN_CREATE(self, event):
+    def process_IN_CLOSE_WRITE(self, event):
         try:
             print("Creating:", event.pathname)
-            self._current_timestamp = os.path.getmtime(event.pathname)
+            path = os.path.dirname(event.pathname)
+            if event.pathname.endswith("raw"):
+                meta_fname = os.path.basename(event.pathname)[:-3]+"meta"
+                self._current_timestamp = os.path.getmtime(event.pathname)
+                shutil.copy("current_status.meta", os.path.join(path, meta_fname))
+                #os.system("cp {} {}".format("current_status.meta", os.path.join(path, meta_fname)))
         except Exception as ex:
             logger.warning("Exception in processing IN_CREATE event: "+str(ex))
+
         
     def process_IN_DELETE(self, event):
         print("Removing:", event.pathname)
@@ -213,12 +220,12 @@ def _process_commands(command_dict, cam_commands):
         vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
                                                    queue_name=known_vis_queues[cam_commands["location"]]["cam"])
         cam_response = vis_cam_rpc_client.call(json.dumps(cam_commands.copy()))
-        with open("current_status.meta", "w") as fh:
-            json.dump(cam_commands.copy(), fh)
         print("Stored ==> ", cam_commands)
         # hacky way to clear the object
         vis_cam_rpc_client = None
         del vis_cam_rpc_client
+        with open("current_status.meta", "w") as fh:
+            json.dump(_status(new_command['location']), fh)
         return "OK"
     else:
         # obtain the status from camera

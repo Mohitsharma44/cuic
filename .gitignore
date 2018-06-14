@@ -32,3 +32,4 @@
 */build/*
 supervisord.conf
 
+supervisord.conf

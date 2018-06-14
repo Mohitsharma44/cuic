@@ -1046,7 +1046,7 @@ std::string camera_commands(void *context, std::string command)
       killself();
     }
 
-  if (exposure != -1){
+  if (exposure != -99){
     // Change the exposure of the camera
     if (Commandcontext->Camera)
       {

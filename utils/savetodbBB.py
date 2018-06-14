@@ -22,7 +22,7 @@ class EventHandler(pyinotify.ProcessEvent):
             time = os.stat(fpath).st_mtime
 
             print("Creating: {}".format(event.pathname))
-            with open(event.pathname.split('.')[:-1]+'.meta')) as f:
+            with open(event.pathname.split('.')[:-1]+'.meta') as f:
                 data = json.loads(f.read())
                 exposure = data['exposure']
                 aperture = data['aperture']

@@ -2,6 +2,7 @@ import pyinotify
 import os
 from datetime import datetime
 from keys import usrid, password
+import json
 
 from couchbase.cluster import Cluster, PasswordAuthenticator
 cluster = Cluster('couchbase://localhost')

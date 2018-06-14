@@ -31,8 +31,7 @@ class EventHandler(pyinotify.ProcessEvent):
                 interval = data['interval']
             f.close()
             bucket.upsert(seq,{'fname':fname,'fpath':fpath,'time':time,
-            'exposure':exposure, 'aperture':aperture, 'focus':focus,
-            'interval':interval
+            'exposure':exposure, 'aperture':aperture, 'focus':focus
             })
             bucket.replace('nextseq','{:08d}'.format(int(seq)+1))
 

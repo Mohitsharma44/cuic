@@ -15,12 +15,12 @@ def read_raw(in1, in2=None, nrow=2160, ncol=4096, nwav=3):
         fname = os.path.join(in1, in2)
     else:
         fname = in1
-
-    try:
-        return np.fromfile(fname, np.uint8).reshape(nrow, ncol, nwav)[:,:,::-1]
-    except:
-        print("FILE READ ERROR!!!")
-        return -1
+    print(fname)
+    #try:
+    return np.fromfile(fname, np.uint8).reshape(nrow, ncol, nwav)[:,:,::-1]
+    #except:
+    #    print("FILE READ ERROR!!!")
+    #    return -1
 
 
 

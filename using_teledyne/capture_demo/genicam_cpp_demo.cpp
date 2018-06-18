@@ -86,6 +86,7 @@ typedef struct tagMY_CONTEXT
   std::string         recent_error;
   std::string         msg;
   long int            frames_captured;
+  int                 nullctr;
 }MY_CONTEXT, *PMY_CONTEXT;
 
 struct ClearErrorMsgs{
@@ -172,15 +173,14 @@ void * ImageSaveThread( void *context)
           GEV_BUFFER_OBJECT *img = NULL;
           GEV_STATUS status = 0;
           PUINT8 imgaddr = NULL;
-	  int nullctr = 0;
           // Wait for images to be received
           status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
 
 	  if ((status != GEVLIB_OK) && (saveContext->capture != 0) &&
 	      (saveContext->interval > 0)) {
 	    LOG_WARNING << "Timeout or Null ptr in Image";
-	    nullctr += 1;
-	    if (nullctr > 2){
+	    saveContext->nullctr += 1;
+	    if (saveContext->nullctr > 2){
 	      cleanup(saveContext);
 	      sleep(2);
 	      killself();
@@ -190,7 +190,7 @@ void * ImageSaveThread( void *context)
           else if ((saveContext->capture != 0) && (saveContext->interval > 0) &&
               (img != NULL) && (status == GEVLIB_OK))
             {
-	      nullctr = 0;
+	      //saveContext->nullctr = 0;
               LOG_VERBOSE << "Image Status: " << img->status;
               LOG_VERBOSE_(FileLog) << "Image Status: " << img->status;
               LOG_VERBOSE << "Buffer State: " << img->recv_size;

@@ -6,6 +6,7 @@ import ast
 import os
 import sys
 import pika
+import psutil
 import shutil
 import logger
 import asyncio
@@ -15,10 +16,17 @@ import multiprocessing
 from rpc_client import UOControllerRpcClient
 from xmlrpc.client import ServerProxy
 
+PROCNAME = "watchdog.py"
 ### --- relative import for pybirger
 logger = logger.logger(tofile=True)
 try:
-    sys.path.append(os.path.abspath('..'))
+    current_path = os.path.split(os.path.abspath(os.path.realpath(sys.argv[0])))[0]
+    #current_path = os.path.dirname(os.path.abspath(__file__))
+    #print("argv[0] "+str(sys.argv[0]))
+    #print("This will be appended: "+str(os.path.join(current_path, os.path.abspath('..'))))
+    #sys.path.append(os.path.join(current_path, os.path.abspath('..')))
+    #sys.path.append(os.path.join(current_path, os.path.abspath('..')))
+    sys.path.append(os.path.abspath(os.path.join(current_path, os.path.pardir)))
     from pybirger.pybirger import api
     birger = api.Birger(os.getenv("birger_uds_host"), os.getenv("birger_uds_port"))
 except Exception as ex:
@@ -72,13 +80,13 @@ class FsEventHandler(pyinotify.ProcessEvent):
         try:
             if self.cam_commands.get("capture", 0) != 0 and self.BUSY == False:
                 if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
-                    self.restart_camera()
+                    self._restart_camera()
                     # Give camera a little time to start capturing
                     self._current_timestamp = time.time()
                 if time.time() - self._current_timestamp > 6*(cam_commands["interval"]):
                     logger.warning("No Images received in last {} seconds".\
                                    format(6*(cam_commands["interval"])))
-                    self.restart_camera()
+                    self._restart_camera()
             else:
                 # watchdog shouldn't restart the code next time the camear is instructed
                 # to capture, so update the _current_timestamp
@@ -86,24 +94,17 @@ class FsEventHandler(pyinotify.ProcessEvent):
                 self._current_timestamp = time.time()
         except Exception as ex:
             logger.error("Error in check_timestamp: "+str(ex))
+            logger.warning("Since I cannot recover from this error, I will die. Hopefully someone will resuscitate me")
+            _quit()
         finally:
             threading.Timer(2, self.check_timestamp).start()
             
-    def restart_camera(self):
+    def _restart_camera(self):
         try:
             self.BUSY = True
-            logger.warning("Restarting cuicucapture code")
-            if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in STOPPED_STATENAME:
-                proxy.supervisor.stopProcess("cuiccapture")
-                time.sleep(10)
-            if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
-                proxy.supervisor.startProcess("cuiccapture")
-                time.sleep(10)
-            vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
-                                                       queue_name=known_vis_queues[self.cam_commands["location"]]["cam"])
-            vis_cam_response = vis_cam_rpc_client.call(json.dumps(dict(self.cam_commands)))
+            restart_camera(self.cam_commands)
         except Exception as ex:
-            logger.error("Exception in restart_camera: "+str(ex))
+            logger.error("Exception in _restart_camera: "+str(ex))
         finally:
             # Set the _current_timestamp to current time
             self._current_timestamp = time.time()
@@ -111,12 +112,12 @@ class FsEventHandler(pyinotify.ProcessEvent):
             
     def process_IN_CLOSE_WRITE(self, event):
         try:
-            print("Creating:", event.pathname)
             path = os.path.dirname(event.pathname)
             if event.pathname.endswith("raw"):
                 meta_fname = os.path.basename(event.pathname)[:-3]+"meta"
+                logger.info("Creating "+str(meta_fname))
                 self._current_timestamp = os.path.getmtime(event.pathname)
-                shutil.copy("current_status.meta", os.path.join(path, meta_fname))
+                shutil.copy(os.path.join(current_path, "current_status.meta"), os.path.join(path, meta_fname))
                 #os.system("cp {} {}".format("current_status.meta", os.path.join(path, meta_fname)))
         except Exception as ex:
             logger.warning("Exception in processing IN_CREATE event: "+str(ex))
@@ -128,6 +129,22 @@ class FsEventHandler(pyinotify.ProcessEvent):
     def process_IN_MOVED_TO(self, event):
         print("Moved: ", event.pathname)
 
+def restart_camera(cam_commands):
+    try:
+        logger.warning("Restarting cuicucapture code")
+        if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in STOPPED_STATENAME:
+            proxy.supervisor.stopProcess("cuiccapture")
+            time.sleep(10)
+        if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
+            proxy.supervisor.startProcess("cuiccapture")
+            time.sleep(10)
+        vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
+                                                   queue_name=known_vis_queues[cam_commands["location"]]["cam"])
+        vis_cam_response = vis_cam_rpc_client.call(json.dumps(dict(cam_commands)))
+        return vis_cam_response
+    except Exception as ex:
+        logger.error("Exception in restart_camera: "+str(ex))
+            
 def monitor_fs(directory, cam_commands):
     """
     Monitoring file system for new files every `interval`.
@@ -172,10 +189,13 @@ def _status(loc):
     vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
                                                queue_name=known_vis_queues[cam_status_cmd["location"]]["cam"])
     cam_response = vis_cam_rpc_client.call(json.dumps(cam_status_cmd))
+    #if not cam_response:
+    # Cannot communicate with the camera, restart it?
+    #    cam_response = restart_camera(cam_status_cmd)
     status_message = ast.literal_eval(cam_response.strip("b'"))
     # relevant information from the lens
     lens_status = {
-        "focus": int(birger.get_focus()),
+        "focus": birger.get_focus().decode('ascii'),
         "aperture": birger.get_aperture().decode('ascii')
     }
     status_message.update(lens_status)
@@ -193,43 +213,49 @@ def _process_commands(command_dict, cam_commands):
     stored commands. This should only be called when
     a new command is sent by controller.
     """
-    new_command = {
-        "location": str(command_dict["location"]),
-        "status": bool(command_dict["status"]),
-        "kill": str(command_dict["kill"]),
-        "capture": int(command_dict["capture"]),
-        "exposure": float(command_dict["exposure"]),
-        "focus": int(command_dict["focus"]),
-        "interval": int(command_dict["interval"]),
-        "stop": bool(command_dict["stop"]),
-        "aperture": int(command_dict["aperture"]),
-    }
-    # Only update the command when status != True. i.e
-    # we don't want to store the command if the controller
-    # has sent request to just get the status of the camera
-    if not new_command.get("status", False):
-        # if the command has aperture or focus information,
-        # send that to the birger adapter
-        focus = new_command["focus"]
-        if focus != -99:
-            birger.set_focus(new_command["focus"])
-        aperture = new_command["aperture"]
-        if aperture != -99:
-            birger.set_aperture(aperture)
-        cam_commands.update(new_command)
-        vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
-                                                   queue_name=known_vis_queues[cam_commands["location"]]["cam"])
-        cam_response = vis_cam_rpc_client.call(json.dumps(cam_commands.copy()))
-        print("Stored ==> ", cam_commands)
-        # hacky way to clear the object
-        vis_cam_rpc_client = None
-        del vis_cam_rpc_client
-        with open("current_status.meta", "w") as fh:
-            json.dump(_status(new_command['location']), fh)
-        return "OK"
-    else:
-        # obtain the status from camera
-        return _status(new_command['location'])
+    try:
+        new_command = {
+            "location": str(command_dict["location"]),
+            "status": bool(command_dict["status"]),
+            "kill": str(command_dict["kill"]),
+            "capture": int(command_dict["capture"]),
+            "exposure": float(command_dict["exposure"]),
+            "focus": int(command_dict["focus"]),
+            "interval": int(command_dict["interval"]),
+            "stop": bool(command_dict["stop"]),
+            "aperture": int(command_dict["aperture"]),
+        }
+        # Only update the command when status != True. i.e
+        # we don't want to store the command if the controller
+        # has sent request to just get the status of the camera
+        if not new_command.get("status", False):
+            # if the command has aperture or focus information,
+            # send that to the birger adapter
+            focus = new_command["focus"]
+            if focus != -99:
+                birger.set_focus(new_command["focus"])
+            aperture = new_command["aperture"]
+            if aperture != -99:
+                birger.set_aperture(aperture)
+            cam_commands.update(new_command)
+            # let's also save this camera command to file
+            with open(os.path.join(current_path, "last_command.cmd"), "w") as fh:
+                json.dump(cam_commands.copy(), fh)
+            vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
+                                                       queue_name=known_vis_queues[cam_commands["location"]]["cam"])
+            cam_response = vis_cam_rpc_client.call(json.dumps(cam_commands.copy()))
+            print("Stored ==> ", cam_commands)
+            # hacky way to clear the object
+            vis_cam_rpc_client = None
+            del vis_cam_rpc_client
+            with open(os.path.join(current_path, "current_status.meta"), "w") as fh:
+                json.dump(_status(new_command['location']), fh)
+            return "OK"
+        else:
+            # obtain the status from camera
+            return _status(new_command['location'])
+    except Exception as ex:
+        logger.error("Error processing command: "+str(ex))
     
 def on_rpc_request(ch, method, props, body):
     """
@@ -244,13 +270,43 @@ def on_rpc_request(ch, method, props, body):
                      properties=pika.BasicProperties(correlation_id=props.correlation_id),
                      body=str(response))
     ch.basic_ack(delivery_tag=method.delivery_tag)
-    
+
+def _replay_prev_command(cam_commands):
+    """
+    check if `last_command.cmd` file exists and
+    replay it to the cmaera and/or to the lens.
+    Parameters
+    ----------
+    cam_commands: mulitprocessing manager dict object
+        that contains current camera commands shared
+        amongst different processes and functions
+    """
+    try:
+        logger.info("Replaying previous command")
+        prev_command_file = os.path.join(current_path, "last_command.cmd")
+        if os.path.exists(prev_command_file):
+            with open(prev_command_file, "r") as fh:
+                prev_command = json.load(fh)
+            restart_camera(prev_command)
+            _process_commands(prev_command, cam_commands)
+    except Exception as ex:
+        logger.warning("Error reading last command file: "+str(ex))
+
+def _quit():
+    sys.exit(2)
+        
 if __name__ == "__main__":
+    for proc in psutil.process_iter():
+        if PROCNAME in proc.name():
+            if "watchdog.py" in [x for y in list(map(lambda x: x.split('/'), proc.cmdline())) for x in y]:
+                proc.terminate()
+
     mp_manager = multiprocessing.Manager()
     cam_commands = mp_manager.dict()
 
     logger.info("Starting fs monitoring")
     process = multiprocessing.Process(target=monitor_fs, args=(IMG_DIR, cam_commands))
+    process.daemon=True
     process.start()
     logger.info("Opening Connection with RabbitMQ")
     credentials = pika.PlainCredentials(os.getenv("rpc_user"), os.getenv("rpc_pass"))
@@ -261,6 +317,8 @@ if __name__ == "__main__":
     channel.queue_declare(queue=RPC_QUEUE_NAME)
 
     try:
+        # replay previous command
+        _replay_prev_command(cam_commands)
         channel.basic_qos(prefetch_count=1)
         channel.basic_consume(on_rpc_request, queue=RPC_QUEUE_NAME)
         logger.info("Listening for RPC messages")
@@ -270,4 +328,3 @@ if __name__ == "__main__":
         logger.info("Exiting now")
     except Exception as ex:
         logger.critical("Critical Exception in main: "+str(ex))
-

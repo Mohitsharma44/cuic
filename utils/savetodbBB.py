@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from keys import usrid, password
 import json
+from register import *
 
 from couchbase.cluster import Cluster, PasswordAuthenticator
 cluster = Cluster('couchbase://localhost')
@@ -23,15 +24,22 @@ class EventHandler(pyinotify.ProcessEvent):
             time = os.stat(fpath).st_mtime
 
             print("Creating: {}".format(event.pathname))
+
+            #read metadata
             with open(event.pathname.split('.')[0]+'.meta') as f:
                 data = json.loads(f.read())
                 exposure = data['exposure']
                 aperture = data['aperture']
                 focus = data['focus']
-                interval = data['interval']
+                # interval = data['interval']
             f.close()
+
+            #calculate regiteration
+            dr,dc,dt = register(event.pathname)
+
             bucket.upsert(seq,{'fname':fname,'fpath':fpath,'time':time,
-            'exposure':exposure, 'aperture':aperture, 'focus':focus
+            'exposure':exposure, 'aperture':aperture, 'focus':focus,
+            'registration':[dr,dc,dt]
             })
             bucket.replace('nextseq','{:08d}'.format(int(seq)+1))
 

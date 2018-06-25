@@ -94,6 +94,8 @@ class FsEventHandler(pyinotify.ProcessEvent):
                 self._current_timestamp = time.time()
         except Exception as ex:
             logger.error("Error in check_timestamp: "+str(ex))
+            logger.warning("Since I cannot recover from this error, I will die. Hopefully someone will resuscitate me")
+            _quit()
         finally:
             threading.Timer(2, self.check_timestamp).start()
             
@@ -290,6 +292,9 @@ def _replay_prev_command(cam_commands):
     except Exception as ex:
         logger.warning("Error reading last command file: "+str(ex))
 
+def _quit():
+    sys.exit(2)
+        
 if __name__ == "__main__":
     for proc in psutil.process_iter():
         if PROCNAME in proc.name():

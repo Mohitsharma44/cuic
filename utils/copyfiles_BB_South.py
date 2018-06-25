@@ -5,6 +5,9 @@ from filecmp import cmp
 import sched
 import time
 import hashlib
+import logger
+
+logger = logger.logger(tofile=True)
 
 #File compare
 def hash_bytestr_iter(bytesiter, hasher, ashexstr=False):
@@ -25,35 +28,39 @@ def copyfile():
     path = base+"/live"
 
     #Begin logging
-    tlog = datetime.now().isoformat()
-    log = open('copylog_'+'_'.join(base.split('/')[-2:])+'_'+tlog+'.log', 'w')
+    #tlog = datetime.now().isoformat()
+    #log = open('copylog_'+'_'.join(base.split('/')[-2:])+'_'+tlog+'.log', 'w')
 
     for f in os.listdir(path):
         #Generate new directory path
         file = os.path.join(path, f)
-        #Get Modification time
-        time = datetime.fromtimestamp(os.stat(file).st_mtime)
-        npath = base + "/%d/%02d/%02d/%02d"%(time.year,time.month,time.day,time.hour)
-        nfile = os.path.join(npath, f)
-        log.write('check '+file+'\n')
+        if os.path.isfile(file):
+            #Get Modification time
+            time = datetime.fromtimestamp(os.stat(file).st_mtime)
+            npath = base + "/%d/%02d/%02d/%02d"%(time.year,time.month,time.day,time.hour)
+            nfile = os.path.join(npath, f)
+            logger.debug('check '+file+'\n')
 
-        #Create the directory if not exist
-        if not os.path.exists(npath):
-            log.write('create dir: '+npath+'\n')
-            os.makedirs(npath)
+            #Create the directory if not exist
+            if not os.path.exists(npath):
+                logger.info('create dir: '+npath+'\n')
+                os.makedirs(npath)
 
-        if not os.path.exists(nfile):
-            #Copy the file
-            shutil.copy2(file, npath)
-            log.write('Copy to '+npath+'\n')
-            #Compare the file
-            hashfile = hash_bytestr_iter(file_as_blockiter(open(file, 'rb')), hashlib.sha256())
-            hashnfile = hash_bytestr_iter(file_as_blockiter(open(nfile, 'rb')), hashlib.sha256())
-            log.write('Compare result: '+str(hashfile==hashnfile)+'\n')
-        else:
-            log.write('Already exists: '+nfile+'\n')
-
-    log.close()
+            if not os.path.exists(nfile):
+                #Copy the file
+                shutil.copy2(file, npath)
+                logger.debug('Copy to '+npath+'\n')
+                #Compare the file
+                hashfile = hash_bytestr_iter(file_as_blockiter(open(file, 'rb')), hashlib.sha256())
+                hashnfile = hash_bytestr_iter(file_as_blockiter(open(nfile, 'rb')), hashlib.sha256())
+                if hashfile==hashnfile:
+                    logger.info('Removing file because it was copied successfully: '+str(file))
+                    os.remove(file)
+            else:
+                logger.debug('Already exists: '+nfile+'\n')
+                logger.info('Removing file because it has already been moved: '+str(file))
+                os.remove(file)
+    #log.close()
 
 class PeriodicScheduler(object):
     def __init__(self):

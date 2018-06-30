@@ -63,6 +63,7 @@ STOPPED_STATENAME     = ["STOPPING", "STOPPED", "EXITED"]
 class FsEventHandler(pyinotify.ProcessEvent):
     def __init__(self, cam_commands):
         self._current_timestamp = 0
+        self._internal_cntr = 0
         self.cam_commands = cam_commands
         self.check_timestamp()
         self.BUSY = False
@@ -78,20 +79,49 @@ class FsEventHandler(pyinotify.ProcessEvent):
         but cannot find a better alternative. Maybe for some othertime or ... decade 
         """
         try:
-            if self.cam_commands.get("capture", 0) != 0 and self.BUSY == False:
-                if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
-                    self._restart_camera()
-                    # Give camera a little time to start capturing
+            # Is the camera supposed to capture image continuously?
+            if self.cam_commands.get("interval", 0) != 0:
+                # Is the camera capturing finite, X, frames?
+                if (self.cam_commands.get("capture", 0) > 0 and \
+                    self._internal_cntr < self.cam_commands.get("capture", 0) and \
+                    self.BUSY == False):
+                    if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
+                        self._restart_camera()
+                        logger.critical("After ===== " + str(self.cam_commands["capture"]))
+                        # Make sure that camera has captured atleast 1 image in
+                        # (interval + 60) seconds
+                        self._current_timestamp = time.time()
+                    elif time.time() - self._current_timestamp > (60 + (self.cam_commands["interval"])):
+                        logger.warning("No Images received in last {} seconds".\
+                                       format(60 + (self.cam_commands["interval"])))
+                        self._restart_camera()
+                        logger.critical("After2 ===== " + str(self.cam_commands["capture"]))
+                    # Stop monitoring files once the X frames have been captured
+                    elif self._internal_cntr >= self.cam_commands["capture"]:
+                        logger.info("All frames captured, Stopping fsmonitoring")
+                        _temp_cam_commands = self.cam_commands
+                        _temp_cam_commands["capture"] = 0
+                        self.cam_commands = _temp_cam_commands
+                        self._internal_cntr = 0
+                    else:
+                        self._internal_cntr += 1
+                # Is the camera capturing infinite frames?
+                elif self.cam_commands.get("capture", 0) == -1 and self.BUSY == False:
+                    if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
+                        self._restart_camera()
+                        # Make sure that camera has captured atleast 1 image in
+                        # (interval + 60) seconds
+                        self._current_timestamp = time.time()
+                    elif time.time() - self._current_timestamp > (60 + (self.cam_commands["interval"])):
+                        logger.warning("No Images received in last {} seconds".\
+                                       format(60 + (self.cam_commands["interval"])))
+                        self._restart_camera()
+                # Camera is not capturing anything
+                else:
+                    # watchdog shouldn't restart the code next time the camera is instructed
+                    # to capture, so update the _current_timestamp
+                    # to current time
                     self._current_timestamp = time.time()
-                if time.time() - self._current_timestamp > 6*(cam_commands["interval"]):
-                    logger.warning("No Images received in last {} seconds".\
-                                   format(6*(cam_commands["interval"])))
-                    self._restart_camera()
-            else:
-                # watchdog shouldn't restart the code next time the camear is instructed
-                # to capture, so update the _current_timestamp
-                # to current time
-                self._current_timestamp = time.time()
         except Exception as ex:
             logger.error("Error in check_timestamp: "+str(ex))
             logger.warning("Since I cannot recover from this error, I will die. Hopefully someone will resuscitate me")
@@ -102,6 +132,13 @@ class FsEventHandler(pyinotify.ProcessEvent):
     def _restart_camera(self):
         try:
             self.BUSY = True
+            # After restarting camera, only capture remaining frames:
+            # -- this is the way to propagate the changes to mp.manager.dict
+            _temp_cam_commands = self.cam_commands
+            _temp_cam_commands["capture"] = _temp_cam_commands["capture"] - self._internal_cntr
+            self.cam_commands = _temp_cam_commands
+            # --
+            self._internal_cntr = 0
             restart_camera(self.cam_commands)
         except Exception as ex:
             logger.error("Exception in _restart_camera: "+str(ex))
@@ -237,6 +274,10 @@ def _process_commands(command_dict, cam_commands):
             aperture = new_command["aperture"]
             if aperture != -99:
                 birger.set_aperture(aperture)
+            # this means probably user doesnt want to capture multiple images
+            # set it to something high
+            #if new_command["interval"] == 0:
+            #    new_command["interval"] = 999999
             cam_commands.update(new_command)
             # let's also save this camera command to file
             with open(os.path.join(current_path, "last_command.cmd"), "w") as fh:
@@ -248,6 +289,13 @@ def _process_commands(command_dict, cam_commands):
             # hacky way to clear the object
             vis_cam_rpc_client = None
             del vis_cam_rpc_client
+            # Obtain the status to write to file as metadata
+            metadata = _status(new_command["location"])
+            if not metadata:
+                # Probably camera capture code is not running,
+                # restart the capture code and obtain metadata again
+                restart_camera(new_command)
+                metadata = _status(new_command["location"])
             with open(os.path.join(current_path, "current_status.meta"), "w") as fh:
                 json.dump(_status(new_command['location']), fh)
             return "OK"
@@ -287,7 +335,7 @@ def _replay_prev_command(cam_commands):
         if os.path.exists(prev_command_file):
             with open(prev_command_file, "r") as fh:
                 prev_command = json.load(fh)
-            restart_camera(prev_command)
+            #restart_camera(prev_command)
             _process_commands(prev_command, cam_commands)
     except Exception as ex:
         logger.warning("Error reading last command file: "+str(ex))

@@ -51,7 +51,7 @@ class PTCcontroller(object):
     """
     def __init__(self, flags=None, status_dict=None, interval=None,
                   command=None, noimage=False, loop_cntr=None,
-                 *args, **kwargs):
+                 ftimestamp=None, *args, **kwargs):
         self.flags = flags
         self.status_dict = status_dict
         self.interval = interval
@@ -66,6 +66,7 @@ class PTCcontroller(object):
         self.pt_positions = None
         # dummy apscheduler.job variable
         self.ptjob = job.Job
+        self.ftimestamp = ftimestamp
         
     def start(self):
         """
@@ -83,12 +84,6 @@ class PTCcontroller(object):
                                                seconds=self.interval.value, id="ptcontroller")
             scheduler.reschedule_job(self.ptjob.id, trigger='interval', seconds=self.interval.value)
             self.ptjob.resume()
-            """
-            self.ptsched = scheduler.enter(2, 1, self.ptcontrol, (scheduler,))
-            t = threading.Thread(target=scheduler.run, args=(True, ))
-            t.start()
-            t.join()
-            """
         except Exception as ex:
             logger.error("Error scheduling ptcontroller: "+str(ex))
 
@@ -110,7 +105,6 @@ class PTCcontroller(object):
         This will shutdown the scheduler once and for all
         """
         try:
-            self.ptjob.remove()
             scheduler.shutdown()
         except Exception as ex:
             # who cares at this stage
@@ -136,7 +130,33 @@ class PTCcontroller(object):
         except Exception as ex:
             logger.error("Exception in restart_camera: "+str(ex))
             self.flags["ready_flag"] = True
-        
+
+    def set_exposure(self, location, value):
+        """
+        Set the exposure of the camera to `value`
+        """
+        if value != -99:
+            cam_command = {
+                "interval": 0,
+                "focus": -99,
+                "location": location,
+                "status": False,
+                "aperture": -99,
+                "exposure": int(value),
+                "stop": False,
+                "capture": 0,
+                "kill": ""
+            }
+            self._send_to_camera(cam_command)
+
+    def set_focus(self, value):
+        if value != -99:
+            self.birger.set_focus(value)
+
+    def set_aperture(self, value):
+        if value != -99:
+            self.birger.set_aperture(value)
+    
     def _cam_status(self, location):
         """
         Function to obtain the status from the camera
@@ -187,10 +207,11 @@ class PTCcontroller(object):
         
     def status(self, cam_location, tofile=True):
         try:
+            self.flags["ready_flag"] = False
             cam_status = self._cam_status(cam_location)
             lens_status = self._lens_status()
             pt_status = self.next_pos
-            _status = {"camera": cam_status, "lens": lens_status, "pt_locs": self.next_pos}
+            _status = {"camera": cam_status, "lens": lens_status, "pt_locs": self.pt.current_pos()}
             if tofile:
                 with open(os.path.join(current_path, "current_status.meta"), "w") as fh:
                     json.dump(_status, fh)
@@ -198,6 +219,8 @@ class PTCcontroller(object):
             return _status
         except Exception as ex:
             logger.critical("Error obtaining status: "+str(ex))
+        finally:
+            self.flags["ready_flag"] = True
 
     def _send_to_camera(self, command=None):
         while not self.flags["ready_flag"]:
@@ -263,7 +286,8 @@ class PTCcontroller(object):
         """
         def _new_file_captured():
             trial = 0
-            while trial < 2:
+            while trial < 4:
+                """
                 new_ftime = self._get_last_file_modified_time(os.path.join(os.getenv("mtc_vis_dir"),
                                                                             self.command["location"],
                                                                             "live"))
@@ -274,9 +298,14 @@ class PTCcontroller(object):
                 else:
                     return new_ftime
                 time.sleep(5)
+                """
+                if self.ftimestamp.value > self._old_ftime:
+                    return self.ftimestamp.value
+                else:
+                    trial += 1
+                    time.sleep(5)
             else:
                 return False
-                
                 
         cam_command = {
             "location": str(self.command["location"]),
@@ -302,36 +331,36 @@ class PTCcontroller(object):
                         while not self.flags["ready_flag"]:
                             # wait for camera to finish restarting
                             time.sleep(1)
-                    logger.info("now setting old time = new time")
-                    self._old_ftime = _new_ftime
-                    # If allowed to run?
-                    if self.flags["ready_flag"]:
-                        logger.info("Allowed to run pt or replay")
-                        # resend the command? then don't move pan and tilt
-                        try:
-                            if not self.flags["resend_flag"]:
-                                logger.info("No replay required, pan and/or tilt")
-                                # pan and tilt
-                                self.next_pos = next(self.pt_positions)
-                                # update the status
-                                logger.info("I will move PT : {}".format(self.noimage.value))
-                                #time.sleep(5)
-                                self.pantilt(self.next_pos)
-                                # capture image if requested
-                                if not self.noimage.value:
-                                    #logger.info("I will send the capure command to camera")
-                                    self._send_to_camera(command=cam_command)
-                            else:
-                                if self._send_to_camera(command=cam_command):
-                                    self.flags["resend_flag"] = False
-                        except Exception as ex:
-                            logger.info("Exception in panning, tilting or capturing: "+str(ex))
-                        finally:
-                            if self.loop_cntr.value > 0 and not self.flags["resend_flag"]:
-                                logger.info("decrementing self.loop_cntr")
-                                self.loop_cntr.set(self.loop_cntr.value - 1)
-                                logger.info("decremented loop cntr = {}".format(self.loop_cntr.value))
-                                    
+                        logger.info("now setting old time = new time")
+                        self._old_ftime = _new_ftime
+                # If allowed to run?
+                if self.flags["ready_flag"]:
+                    logger.info("Allowed to run pt or replay")
+                    # resend the command? then don't move pan and tilt
+                    try:
+                        if not self.flags["resend_flag"]:
+                            logger.info("No replay required, pan and/or tilt")
+                            # pan and tilt
+                            self.next_pos = next(self.pt_positions)
+                            # update the status
+                            logger.info("I will move PT : {}".format(self.noimage.value))
+                            #time.sleep(5)
+                            self.pantilt(self.next_pos)
+                            # capture image if requested
+                            if not self.noimage.value:
+                                #logger.info("I will send the capure command to camera")
+                                self._send_to_camera(command=cam_command)
+                        else:
+                            if self._send_to_camera(command=cam_command):
+                                self.flags["resend_flag"] = False
+                    except Exception as ex:
+                        logger.info("Exception in panning, tilting or capturing: "+str(ex))
+                    finally:
+                        if self.loop_cntr.value > 0 and not self.flags["resend_flag"]:
+                            logger.info("decrementing self.loop_cntr")
+                            self.loop_cntr.set(self.loop_cntr.value - 1)
+                            logger.info("decremented loop cntr = {}".format(self.loop_cntr.value))
+                            
             """
             if (self.loop_cntr.value > 0 or self.loop_cntr.value == -1):
             try:

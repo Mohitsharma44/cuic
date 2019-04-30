@@ -1,0 +1,469 @@
+import time
+import ast
+import os
+import sys
+import pika
+import json
+import shutil
+import logger
+import pyinotify
+import threading
+import multiprocessing
+from xmlrpc.client import ServerProxy
+from rpc_client import UOControllerRpcClient
+
+logger = logger.logger(tofile=True)
+
+try:
+    # relative import for pyflirpt
+    current_path = os.path.split(os.path.abspath(os.path.realpath(sys.argv[0])))[0]
+    sys.path.append(os.path.abspath(os.path.join(current_path, os.path.pardir)))
+    from pybirger.pybirger import api
+    from pyflirpt.keyboard import keyboard
+    birger = api.Birger(os.getenv("birger_uds_host"), os.getenv("birger_uds_port"))
+except Exception as ex:
+    logger.critical("Cannot import pyflirpt for pt control or birger. Make sure its in the parent directory '../': "+str(ex))
+
+proxy = ServerProxy('http://127.0.0.1:9001/RPC2')
+RUNNING_STATENAME     = ["RUNNING"]
+NOT_RUNNING_STATENAME = ["STARTING", "BACKOFF",
+                         "FATAL", "UNKNOWN"]
+STOPPED_STATENAME     = ["STOPPING", "STOPPED", "EXITED"]
+RPC_VHOST = "/vis"
+
+known_vis_queues = {
+    "1mtcNorth": {"cam": "1mtcNorth", "watchdog": "1mtcNorth_watchdog"},
+    "1mtcSouth": {"cam": "1mtcSouth", "watchdog": "1mtcSouth_watchdog"},
+    "370Roof"  : {"cam": "370Roof", "watchdog": "370Roof_watchdog"},
+    "test"     : {"cam": "test", "watchdog": "test_watchdog"},
+}
+
+class FsEventHandler(pyinotify.ProcessEvent):
+    def __init__(self, cam_commands, pt_locations, lock):
+        self._current_timestamp = time.time()
+        self._internal_cntr = 0
+        self.cam_commands = cam_commands
+        self.lock = lock
+        self.check_timestamp()
+        self.BUSY = False
+        # first time, replay previous command first
+        #self._replay_prev_command(self.lock)
+        pt_object = None
+        ptthread = threading.Thread(target=self.pt_controller,
+                                    args=(pt_object, pt_locations,
+                                          cam_commands, self.lock))
+        ptthread.setDaemon(True)
+        ptthread.start()
+        
+    def check_timestamp(self):
+        """
+        Function to check the timestamp and if a drift 
+        > interval + 60 seconds is observed, it makes a call
+        to restart the cuiccapture code.
+        .. Note: Its a super Ugly way for checking timestamp of the files
+        and comparing them. This method creates new thread object
+        everytime its called. Hate this implementation
+        but cannot find a better alternative. Maybe for some othertime or ... decade 
+        """
+        try:
+            # Is the camera supposed to capture image continuously?
+            if self.cam_commands.get("interval", 0) != 0:
+                # Is the camera capturing finite, X, frames?
+                #logger.info("timestamp = capture: {}, internal_cntr: {}, busy: {}".format(self.cam_commands.get("capture", 0),
+                #                                                                          self._internal_cntr,
+                #                                                                          self.BUSY))
+                if (self.cam_commands.get("capture", 0) > 0 and \
+                    self._internal_cntr < self.cam_commands.get("capture", 0) and \
+                    self.BUSY == False):
+                    #logger.info("capture > 0")
+                    if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
+                        logger.critical("cam not running for finite frames")
+                        self._restart_camera()
+                        # Make sure that camera has captured atleast 1 image in
+                        # (interval + 60) seconds
+                        self._current_timestamp = time.time()
+                    elif time.time() - self._current_timestamp > (60 + (self.cam_commands["interval"])):
+                        logger.warning("No Images received in last {} seconds".\
+                                       format(60 + (self.cam_commands["interval"])))
+                        self._restart_camera()
+                    # Stop monitoring files once the X frames have been captured
+                    elif self._internal_cntr >= self.cam_commands["capture"]:
+                        logger.info("All frames captured, Stopping fsmonitoring")
+                        _temp_cam_commands = self.cam_commands
+                        _temp_cam_commands["capture"] = 0
+                        self.cam_commands = _temp_cam_commands
+                        self._internal_cntr = 0
+                # Is the camera capturing infinite frames?
+                elif self.cam_commands.get("capture", 0) == -1 and self.BUSY == False:
+                    logger.info("capture -1")
+                    if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
+                        logger.critical("cam not running for infinite frames")
+                        self._restart_camera()
+                        # Make sure that camera has captured atleast 1 image in
+                        # (interval + 60) seconds
+                        self._current_timestamp = time.time()
+                    elif time.time() - self._current_timestamp > (60 + (self.cam_commands["interval"])):
+                        logger.warning("No Images received in last {} seconds".\
+                                       format(60 + (self.cam_commands["interval"])))
+                        self._restart_camera()
+                # Camera is not capturing anything
+                else:
+                    # watchdog shouldn't restart the code next time the camera is instructed
+                    # to capture, so update the _current_timestamp
+                    # to current time
+                    self._current_timestamp = time.time()
+            """
+            if self.cam_commands.get("capture", 0) != 0 and self.BUSY == False:
+                if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
+                    self._restart_camera()
+                    # Give camera a little time to start capturing
+                    self._current_timestamp = time.time()
+                if time.time() - self._current_timestamp > (60 +(self.cam_commands["interval"])):
+                    logger.warning("No Images received in last {} seconds".\
+                                   format(60 + (self.cam_commands["interval"])))
+                    self._restart_camera()
+            else:
+                # watchdog shouldn't restart the code next time the camear is instructed
+                # to capture, so update the _current_timestamp
+                # to current time
+                self._current_timestamp = time.time()
+            """
+        except Exception as ex:
+            logger.error("Error in check_timestamp: "+str(ex))
+            logger.warning("Since I cannot recover from this error, I will die. Hopefully someone will resuscitate me")
+            #self._quit()
+        finally:
+            threading.Timer(2, self.check_timestamp).start()
+
+    def pt_controller(self, ptobj=None, pt_locations=None,
+                      cam_commands=None, lock=None):
+        while True:
+            try:
+                pt_pos = None
+                # Keep trying until we get the locations
+                while True:
+                    if pt_locations.get("locations", None):
+                        pt_pos = iter(pt_locations["locations"])
+                        break
+                    time.sleep(1)
+                # Pan and tilt controller will send one capture command per position
+                new_command = {
+                    "location": str(cam_commands["location"]),
+                    "status": bool(cam_commands["status"]),
+                    "kill": str(cam_commands["kill"]),
+                    "capture": 1,
+                    "exposure": float(cam_commands["exposure"]),
+                    "focus": int(cam_commands["focus"]),
+                    "interval": int(cam_commands["interval"]),
+                    "stop": bool(cam_commands["stop"]),
+                    "aperture": int(cam_commands["aperture"]),
+                }
+                if new_command.get("status", False):
+                    logger.info("Requesting for status")
+                    new_command["status"] = False
+                    return self.status(new_command["location"])
+                # number of times to run the loop
+                loop_cntr = cam_commands["capture"]
+                # seconds_counter .. to make sure the following loop runs, at max, once every `interval`
+                sec_cntr = time.time() + cam_commands["interval"]
+                while True:
+                    if loop_cntr == 0:
+                        # set capture modes to stop
+                        cam_commands.update({"stop": True})
+                    if cam_commands["stop"]:
+                        break
+                    # Run either `capture` times or indefinitely
+                    elif (loop_cntr > 0 or loop_cntr == -1):
+                        try:
+                            total_locations = len(pt_locations["locations"])
+                            with lock:
+                                #logger.critical("FIRING {}".format(loop_cntr))
+                                try:
+                                    # ------- check p or t values != -999999
+                                    next_pos = next(pt_pos)
+                                    logger.info("moving to: " + str(next_pos))
+                                    time.sleep(5)
+                                    total_locations -= 1
+                                    # Special case, keep internal cntr to 0
+                                    # until scan for `total_locations` have been run
+                                    self._internal_cntr = 0
+                                    if total_locations == 0:
+                                        self._internal_cntr += 1
+                                        loop_cntr -= 1
+                                except StopIteration as si:
+                                    pt_pos = iter(pt_locations["locations"])
+                                    if sec_cntr > 0:
+                                        time.sleep(sec_cntr)
+                                    sec_cntr = time.time() + new_command["interval"]
+                                    if loop_cntr > 0:
+                                        loop_cntr -= 1
+                                    if loop_cntr == 0:
+                                        cam_commands.update({"stop": True})
+                                #logger.critical("lock released by pt")
+                            self._process_commands(new_command, lock) 
+                            with open(os.path.join(current_path, "current_status.meta"), "r+") as fh:
+                                status = json.load(fh)
+                                status.update({"pt":next_pos})
+                                fh.seek(0)
+                                json.dump(status, fh)
+                                fh.truncate()
+                                sec_cntr -= time.time()
+                        except Exception as ex:
+                            pass
+            except Exception as ex:
+                logger.info("Exception in ptcontroller: "+str(ex))
+            time.sleep(1)
+        logger.critical("Last message from ptcontroller")
+ 
+    def _restart_camera(self):
+        try:
+            self.BUSY = True
+            # After restarting camera, only capture remaining frames:
+            # -- this is the way to propagate the changes to mp.manager.dict
+            _temp_cam_commands = self.cam_commands
+            _temp_cam_commands["capture"] = _temp_cam_commands["capture"] - self._internal_cntr
+            self.cam_commands = _temp_cam_commands
+            # --
+            self._internal_cntr = 0
+            self.restart_camera(self.cam_commands.copy(), self.lock)
+        except Exception as ex:
+            logger.error("Exception in _restart_camera: "+str(ex))
+        finally:
+            # Set the _current_timestamp to current time
+            self._current_timestamp = time.time()
+            self.BUSY = False
+
+    def camera_is_running(self):
+        if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] in RUNNING_STATENAME:
+            return True
+        else:
+            return False
+            
+    def restart_camera(self, cam_commands=None, lock=None):
+        try:
+            logger.warning("Restarting cuicucapture code")
+            if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in STOPPED_STATENAME:
+                proxy.supervisor.stopProcess("cuiccapture")
+                time.sleep(10)
+            if proxy.supervisor.getProcessInfo("cuiccapture")['statename'] not in RUNNING_STATENAME:
+                proxy.supervisor.startProcess("cuiccapture")
+                time.sleep(10)
+            if cam_commands:
+                return self._send_to_camera(cam_commands, lock)
+            else:
+                return True
+        except Exception as ex:
+            logger.error("Exception in restart_camera: "+str(ex))
+        
+    def _cam_status(self, loc):
+        """
+        Function to obtain the status from the camera 
+        and the birger adapter
+        Parameters
+        ----------
+        loc: str
+        location of the camera to fetch the information of
+        """
+        cam_status_cmd = {
+            "interval": 0,
+            "focus": -99,
+            "location": loc,
+            "status": True,
+            "aperture": -99,
+            "exposure": -99,
+            "stop": False,
+            "capture": 0,
+            "kill": ""
+        }
+        vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
+                                                   queue_name=known_vis_queues[cam_status_cmd["location"]]["cam"])
+        cam_response = vis_cam_rpc_client.call(json.dumps(cam_status_cmd))
+        status_message = None
+        try:
+            status_message = ast.literal_eval(cam_response.strip("b'"))
+        except Exception as ex:
+            # Cannot communicate with the camera, restart it?
+            cam_response = self.restart_camera(cam_status_cmd, self.lock)
+            status_message = ast.literal_eval(cam_response.strip("b'"))
+        # hacky way to clear the object
+        vis_cam_rpc_client = None
+        del vis_cam_rpc_client
+        return status_message
+
+    def _lens_status(self, birger):
+        """
+        Obtain lens related information
+        Parameter
+        ---------
+        birger: `pybirger` object
+        """
+        return {
+            "focus": birger.get_focus().decode('ascii'),
+            "aperture": birger.get_aperture().decode('ascii')
+        }
+
+    def status(self, cam_location, tofile=True):
+        try:
+            # Obtain the status to write to file as metadata
+            cam_status = self._cam_status(cam_location)
+            lens_status = self._lens_status(birger)
+            _status = {"camera": cam_status, "lens": lens_status}
+            if tofile:
+                with open(os.path.join(current_path, "current_status.meta"), "w") as fh:
+                    json.dump(_status, fh)
+                return True
+            else:
+                return _status
+        except Exception as ex:
+            logger.critical("Error obtaining status: "+str(ex))
+
+    def _process_commands(self, command_dict, lock=None):
+        """
+        Function to process the controller command
+        and to save to the `mp.Manager.dict`.
+        .. Note: Do not call it separately. This 
+        function *overwrites* the previously
+        stored commands. This should only be called when
+        a new command is sent by controller.
+        """
+        try:
+            new_command = {
+                "location": str(command_dict["location"]),
+                "status": bool(command_dict["status"]),
+                "kill": str(command_dict["kill"]),
+                "capture": int(command_dict["capture"]),
+                "exposure": float(command_dict["exposure"]),
+                "focus": int(command_dict["focus"]),
+                "interval": int(command_dict["interval"]),
+                "stop": bool(command_dict["stop"]),
+                "aperture": int(command_dict["aperture"]),
+            }
+            # Only update the command when status != True. i.e
+            # we don't want to store the command if the controller
+            # has sent request to just get the status of the camera
+            if not new_command.get("status", False):
+                # if the command has aperture or focus information,
+                # send that to the birger adapter
+                focus = new_command["focus"]
+                if focus != -99:
+                    birger.set_focus(new_command["focus"])
+                aperture = new_command["aperture"]
+                if aperture != -99:
+                    birger.set_aperture(aperture)
+                self.cam_commands.update(new_command)
+                # let's also save this camera command to file
+                with open(os.path.join(current_path, "last_command.cmd"), "r+") as fh:
+                    last_command = json.load(fh)
+                    fh.seek(0)
+                    last_command.update(self.cam_commands.copy())
+                    json.dump(last_command, fh)
+                    fh.truncate()
+                    #json.dump(self.cam_commands.copy(), fh)
+                # send the command to the camera
+                return self._send_to_camera(self.cam_commands, lock)
+            else:
+                # obtain the status from camera
+                return self._cam_status(new_command['location'])
+        except Exception as ex:
+            logger.error("Error processing command: "+str(ex))
+
+    def _send_to_camera(self, cam_commands, lock=None):
+        try:
+            # This blocking lock will be released in IN_CLOSE_WRITE
+            if lock:
+                #logger.critical("lock with _send_to_camera")
+                lock.acquire(False)
+            vis_cam_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
+                                                       queue_name=known_vis_queues[cam_commands["location"]]["cam"])
+            cam_response = vis_cam_rpc_client.call(json.dumps(cam_commands.copy()))
+            # hacky way to clear the object
+            vis_cam_rpc_client = None
+            del vis_cam_rpc_client
+            # write the status information for camera and lens as metadata
+            self.status(cam_location=cam_commands["location"], tofile=True)
+            return True
+        except Exception as ex:
+            logger.critical("Error sending command to camera: "+str(ex))
+            return("Error in watchdog == "+str(ex))
+
+    def _replay_prev_command(self, lock=None):
+        """
+        check if `last_command.cmd` file exists and
+        replay it to the cmaera and/or to the lens.
+        Parameters
+        ----------
+        cam_commands: mulitprocessing manager dict object
+        that contains current camera commands shared
+        amongst different processes and functions
+        """
+        try:
+            if not self.camera_is_running():
+                self.restart_camera(None, lock)
+            logger.info("Replaying previous command only if continuous capture was requested")
+            prev_command_file = os.path.join(current_path, "last_command.cmd")
+            if os.path.exists(prev_command_file):
+                with open(prev_command_file, "r") as fh:
+                    prev_command = json.load(fh)
+                    if prev_command["capture"] != -1:
+                        if prev_command["pt_locs"]:
+                            watchdog_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
+                                                                        queue_name=known_vis_queues[prev_command["location"]]["watchdog"])
+                            watchdog_response = watchdog_rpc_client.call(json.dumps(prev_command))
+                            logger.info("replayed: "+str(watchdog_response))
+            # check if camera is alive
+            #if not self._cam_status(prev_command["location"]):
+            #    self._process_commands(prev_command, lock)
+            #else:
+            #    # we need to restart the camera first
+            #    self.restart_camera(prev_command, self.lock)
+            self._cam_status(lock)                            
+            """
+            if prev_command["capture"] != -1:
+            return True
+            #restart_camera(prev_command)
+            #restart_camera(prev_command)
+            # check if camera is alive
+            if self._cam_status(prev_command["location"]):
+            self._process_commands(prev_command, lock)
+            else:
+            # we need to restart the camera first
+            self.restart_camera(prev_command, self.lock)
+            # see if pt_locs in raw_cmd
+            if os.path.exists(prev_raw_command_file):
+            with open(prev_raw_command_file, "r") as fh:
+            prev_raw_command = json.load(fh)
+            if prev_raw_command.get("pt_locs", None):
+            # Replay this command back to watchdog!
+            watchdog_rpc_client = UOControllerRpcClient(vhost=RPC_VHOST,
+            queue_name=known_vis_queues[prev_raw_command["location"]]["watchdog"])
+            watchdog_response = watchdog_rpc_client.call(json.dumps(prev_raw_command))
+            logger.info("replayed: "+str(watchdog_response))
+            """
+        except Exception as ex:
+            logger.warning("Error reading last command file: "+str(ex))
+
+    def process_IN_CLOSE_WRITE(self, event):
+        try:
+            path = os.path.dirname(event.pathname)
+            if event.pathname.endswith("raw"):
+                if self.lock:
+                    self.lock.release()
+                    #logger.critical("lock released by IN_CLOSE_WRITE")
+                meta_fname = os.path.basename(event.pathname)[:-3]+"meta"
+                logger.info("Creating "+str(meta_fname))
+                self._current_timestamp = os.path.getmtime(event.pathname)
+                self._internal_cntr += 1
+                shutil.copy(os.path.join(current_path, "current_status.meta"), os.path.join(path, meta_fname))
+                #os.system("cp {} {}".format("current_status.meta", os.path.join(path, meta_fname)))
+        except Exception as ex:
+            logger.warning("Exception in processing IN_CLOSE_WRITE event: "+str(ex))
+
+    def process_IN_DELETE(self, event):
+        print("Removing:", event.pathname)
+
+    def process_IN_MOVED_TO(self, event):
+        print("Moved: ", event.pathname)
+
+    def _quit(self):
+        sys.exit(2)
+

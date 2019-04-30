@@ -33,3 +33,6 @@
 
 
 supervisord.conf
+*.py~
+*#
+__pycache__/

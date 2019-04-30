@@ -30,11 +30,11 @@
 #define MAX_CAMERAS_PER_NETIF   32
 #define MAX_CAMERAS             (MAX_NETIF * MAX_CAMERAS_PER_NETIF)
 // Enable/disable buffer FULL/EMPTY handling (cycling)
-#define USE_SYNCHRONOUS_BUFFER_CYCLING  0
+#define USE_SYNCHRONOUS_BUFFER_CYCLING  1
 // Enable/disable transfer tuning (buffering, timeouts, thread affinity).
-#define TUNE_STREAMING_THREADS 0
+#define TUNE_STREAMING_THREADS 1
 // Maximum number of buffers in camera
-#define NUM_BUF 8
+#define NUM_BUF 1
 
 using json = nlohmann::json;
 
@@ -174,17 +174,17 @@ void * ImageSaveThread( void *context)
           GEV_STATUS status = 0;
           PUINT8 imgaddr = NULL;
           // Wait for images to be received
-          status = GevWaitForNextImage(saveContext->camHandle, &img, 1000);
+          status = GevWaitForNextImage(saveContext->camHandle, &img, 5000);
 
 	  if ((status != GEVLIB_OK) && (saveContext->capture != 0) &&
 	      (saveContext->interval > 0)) {
-	    LOG_WARNING << "Timeout or Null ptr in Image";
 	    saveContext->nullctr += 1;
-	    if (saveContext->nullctr > 2){
-	      cleanup(saveContext);
-	      sleep(2);
-	      killself();
-	    }
+	    LOG_WARNING << "Timeout or Null ptr in Image: "<< saveContext->nullctr;
+	    //if (saveContext->nullctr > 2){
+	    //  cleanup(saveContext);
+	    //  sleep(2);
+	    //  killself();
+	    //}
 	  }
 
           else if ((saveContext->capture != 0) && (saveContext->interval > 0) &&
@@ -722,11 +722,11 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
 
 #if TUNE_STREAMING_THREADS
           // Some tuning can be done here. (see the manual)
-          camOptions.streamFrame_timeout_ms = 1001;                             // Internal timeout for frame reception.
-          camOptions.streamNumFramesBuffered = 4;                         // Buffer frames internally.
+          camOptions.streamFrame_timeout_ms = 2001;                             // Internal timeout for frame reception.
+          camOptions.streamNumFramesBuffered = 1;                         // Buffer frames internally.
           camOptions.streamMemoryLimitMax = 64*1024*1024;         // Adjust packet memory buffering limit.
-          camOptions.streamPktSize = 9180;                                                        // Adjust the GVSP packet size.
-          camOptions.streamPktDelay = 10;                                                       // Add usecs between packets to pace arrival at NIC.
+          //camOptions.streamPktSize = 9180;                                                        // Adjust the GVSP packet size.
+          camOptions.streamPktDelay = 200;                                                       // Add usecs between packets to pace arrival at NIC.
 
           // Assign specific CPUs to threads (affinity) - if required for better performance.
           {
@@ -796,9 +796,9 @@ const MY_CONTEXT & initialize_cameras(MY_CONTEXT & context)
 
 
                   // Set ExposureTime
-                  pNode = Camera->_GetNode("ExposureTime");
-                  GenApi::CValuePtr expVal(pNode);
-                  expVal->FromString("500.0", false);
+                  //pNode = Camera->_GetNode("ExposureTime");
+                  //GenApi::CValuePtr expVal(pNode);
+                  //expVal->FromString("500.0", false);
 
                   // Set Framerate
                   pNode = Camera->_GetNode("AcquisitionFrameRate");

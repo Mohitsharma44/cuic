@@ -7,7 +7,7 @@ import time
 import hashlib
 import logger
 
-logger = logger.logger(tofile=True)
+logger = logger.logger(tofile=False)
 
 #File compare
 def hash_bytestr_iter(bytesiter, hasher, ashexstr=False):

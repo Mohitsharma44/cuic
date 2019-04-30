@@ -69,6 +69,5 @@ class UOControllerRpcClient(object):
                 return None
         except ConnectionClosed as cc:
             print("Connection is not Open!")
-            return False
 
 
